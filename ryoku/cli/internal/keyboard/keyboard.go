@@ -312,31 +312,12 @@ var (
 	}
 )
 
-<<<<<<< port (unstable-dev)
-// RebuildBootImage regenerates every initramfs so the passphrase prompt picks
-// up the console keymap. It prefers mkinitcpio when available and otherwise
-// uses dracut. Rebuilding also updates any UKI managed by the host generator,
-// so callers decide when this slow operation runs.
-func RebuildBootImage() error {
-	if isNixBackend() {
-		return fmt.Errorf(i18n.T("boot images are managed declaratively on NixOS"))
-	}
-	var command []string
-	switch {
-	case hasBootImageTool("mkinitcpio"):
-		command = []string{"mkinitcpio", "-P"}
-	case hasBootImageTool("dracut"):
-		command = []string{"dracut", "--regenerate-all", "--force"}
-	default:
-		return fmt.Errorf(i18n.T("neither mkinitcpio nor dracut is installed"))
-=======
 func systemTool(name string) string {
 	for _, dir := range bootToolDirs {
 		p := filepath.Join(dir, name)
 		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0 {
 			return p
 		}
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
 	}
 	return ""
 }
@@ -388,6 +369,9 @@ func runBootImageTool(argv []string) error {
 // Rebuilding also updates any UKI managed by the host generator, so callers
 // decide when this slow operation runs.
 func RebuildBootImage() error {
+	if isNixBackend() {
+		return fmt.Errorf(i18n.T("boot images are managed declaratively on NixOS"))
+	}
 	argv, err := bootImageCommand()
 	if err != nil {
 		return err

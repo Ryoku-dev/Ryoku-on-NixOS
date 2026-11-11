@@ -576,11 +576,7 @@ Rectangle {
             "recording": "RecordingPage", "performance": "PerformancePage",
             "launcher": "LauncherPage", "lockscreen": "LockscreenPage",
             "fastfetch": "FastfetchPage", "addons": "AddonsPage",
-<<<<<<< port (unstable-dev)
-            "nixos-info": "NixOSInfoPage", "credits": "CreditsPage"
-=======
-            "credits": "CreditsPage", "gamebar": "GameBarPage"
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
+            "nixos-info": "NixOSInfoPage", "credits": "CreditsPage", "gamebar": "GameBarPage"
         };
         map.global = "GlobalPage";
         map["import"] = "ImportPage";

@@ -273,17 +273,15 @@ func (a *App) usersAdd(args []string) int {
 			return a.usersFail(err.Error())
 		}
 	}
-<<<<<<< port (unstable-dev)
-	useradd := []string{"--user-group", "--comment", fullName, "--home-dir", home}
-	// NixOS has no /bin/bash; its useradd defaults name the configured login
-	// shell through /run/current-system, which survives every rebuild.
-	if !sys.NixBackend() {
-		useradd = append(useradd, "--shell", "/bin/bash")
-	}
-=======
 	shell := newAccountShell(users, currentUserName(a, users))
-	useradd := []string{"--user-group", "--shell", shell, "--comment", fullName, "--home-dir", home}
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
+	useradd := []string{"--user-group", "--comment", fullName, "--home-dir", home}
+	// NixOS has no /bin/bash, which is newAccountShell's last resort. Without a
+	// resolved administrator shell, leave --shell off so useradd falls back to the
+	// defaults NixOS configured through /run/current-system, which survive every
+	// rebuild.
+	if !sys.NixBackend() || shell != "/bin/bash" {
+		useradd = append(useradd, "--shell", shell)
+	}
 	if storageCaps.Subvolumes {
 		useradd = append(useradd, "--no-create-home")
 	} else {

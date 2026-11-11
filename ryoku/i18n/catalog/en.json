@@ -763,11 +763,8 @@
   "A phone setup action is already running": "A phone setup action is already running",
   "A preset stays selected only while all of its values still match": "A preset stays selected only while all of its values still match",
   "A prismatic lens, burnt corner, grain-gradient orbs, or a beam under a stroke of light.": "A prismatic lens, burnt corner, grain-gradient orbs, or a beam under a stroke of light.",
-<<<<<<< port (unstable-dev)
   "A rebuild can install a new kernel while the old kernel is still running.": "A rebuild can install a new kernel while the old kernel is still running.",
-=======
   "A released widget pulls to the screen edges, other widgets and the centre lines. Turn off to leave it exactly where it was let go.": "A released widget pulls to the screen edges, other widgets and the centre lines. Turn off to leave it exactly where it was let go.",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "A ringing alarm stops on its own after this long": "A ringing alarm stops on its own after this long",
   "A running window, mirrored on the dock": "A running window, mirrored on the dock",
   "A sample of your frame's music response": "A sample of your frame's music response",
@@ -9473,11 +9470,8 @@
   "Shortcuts": "Shortcuts",
   "Shortcuts, commands, your phone and quick tools.": "Shortcuts, commands, your phone and quick tools.",
   "Shortcuts, not default apps": "Shortcuts, not default apps",
-<<<<<<< port (unstable-dev)
   "Shorten the commands you use every day.": "Shorten the commands you use every day.",
-=======
   "Shorter": "Shorter",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "Shorter durations feel snappier; the curve stays the same.": "Shorter durations feel snappier; the curve stays the same.",
   "Shot": "Shot",
   "Shoulders": "Shoulders",
@@ -9891,13 +9885,7 @@
   "Stacks gather loose files automatically.": "Stacks gather loose files automatically.",
   "Stacks gather loose folders automatically.": "Stacks gather loose folders automatically.",
   "Stage Editor": "Stage Editor",
-<<<<<<< port (unstable-dev)
-  "Stage Editor (GPL-3.0)": "Stage Editor (GPL-3.0)",
-  "Stage Editor and ii dock (GPL-3.0)": "Stage Editor and ii dock (GPL-3.0)",
-  "Stage Editor, ii dock, Kit, Phone (GPL-3.0)": "Stage Editor, ii dock, Kit, Phone (GPL-3.0)",
-=======
   "Stage Editor, ii dock, Kit, Phone, Game Bar voice (GPL-3.0)": "Stage Editor, ii dock, Kit, Phone, Game Bar voice (GPL-3.0)",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "Stage and dock settings use their current stores": "Stage and dock settings use their current stores",
   "Stage captured — lift and touch again": "Stage captured — lift and touch again",
   "Stage editor": "Stage editor",
@@ -11308,11 +11296,8 @@
   "Uptime": "Uptime",
   "Urgent notification": "Urgent notification",
   "Urgent reminder to plug in. Must be below the warning percentage.": "Urgent reminder to plug in. Must be below the warning percentage.",
-<<<<<<< port (unstable-dev)
-  "Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help": "Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help",
-=======
   "Usage limits unavailable": "Usage limits unavailable",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
+  "Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help": "Usage: ryoku <command>\n\n  update         update Ryoku packages/channel commits, redeploy and reload\n  update --system  the same, plus the host distribution package upgrade\n  update --wait  wait for an in-progress channel build/source check\n  update --force update despite an in-progress build/source check\n  update -v      stream full raw update output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   NixOS: stable|unstable; packages: stable|unstable|v<tag>; --source builds a checkout\n  rollback       list releases/snapshots; --to <tag> moves back to a release; [id] guides snapshot restore\n  snapshots      list snapper snapshots\n  status         show channel, installed/latest version, pending changes and snapshots\n  version        print version/commit information (--pretty, --branch)\n  materialize    compose the Ryoku base config into ~/.config while preserving overrides\n  reset [path]   drop a user_edits override (no path: all, -y skips confirmation)\n  owner <path>   classify config ownership (--json, --map)\n  reload         restart the shell and reload the compositor\n  wm <cmd>       provider-backed window-manager controls\n  host <cmd>     internal host abstraction used by scripts and the Hub\n  bind <cmd>     set/reset/list keybindings\n  bar <cmd>      add/remove/move/show/hide/list/configure bar modules\n  deploy         DEV ONLY: deploy from a repository checkout\n  recovery       last-resort reset/redeploy recovery path\n  doctor         converge system/config drift (--check, --explain)\n  verify         report whether this box matches its configured release/channel\n  debug          print a shareable diagnostic bundle\n  keyring        show or configure GNOME keyring sign-in unlock\n  security-key   enroll and wire a FIDO2/U2F security key for PAM\n  import <path>  import existing config with conflict resolution (--undo)\n  plugin <cmd>   create/validate/add/remove/share shell plugins\n  help           show this help",
   "Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's package upgrade\n  update --wait wait for a channel build or source check to finish\n  update --force  update despite an in-progress build or source check\n  update -v      the same, streaming the full raw output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   packages: stable|unstable|v<tag>; add --source to build from a checkout\n  rollback       list releases and snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore\n  status         show channel, installed/latest version, pending changes, snapshot count\n  version        <version> [<commit>]; --pretty -> <version> · <commit>, --branch -> channel\n  owner          <path>... [--json] | --map: classify config ownership\n  materialize    (internal) compose immutable base + user_edits into ~/.config\n  doctor         converge drift (--check reports only; --explain shows every reconciler)\n  wm             list|status|caps|config|act ... (provider-backed window-manager seam)\n  host           internal host abstraction used by scripts and the Hub\n  bind            set|reset <action> <chord>; list [--json]\n  plugin          new|validate|add|remove|share ...\n  bar             add|remove|move|show|hide|list|settings|position|form ...\n  help           show this help": "Usage: ryoku <command>\n\n  update         update the Ryoku packages (or channel commits), redeploy, reload\n  update --system  the same, plus your distribution's package upgrade\n  update --wait wait for a channel build or source check to finish\n  update --force  update despite an in-progress build or source check\n  update -v      the same, streaming the full raw output instead of the summary\n  update --gui   run the update in the background, driven from Ryoku Hub\n  track <chan>   packages: stable|unstable|v<tag>; add --source to build from a checkout\n  rollback       list releases and snapshots; --to <tag> moves back to a release; [id] guides a snapshot restore\n  status         show channel, installed/latest version, pending changes, snapshot count\n  version        <version> [<commit>]; --pretty -> <version> · <commit>, --branch -> channel\n  owner          <path>... [--json] | --map: classify config ownership\n  materialize    (internal) compose immutable base + user_edits into ~/.config\n  doctor         converge drift (--check reports only; --explain shows every reconciler)\n  wm             list|status|caps|config|act ... (provider-backed window-manager seam)\n  host           internal host abstraction used by scripts and the Hub\n  bind            set|reset <action> <chord>; list [--json]\n  plugin          new|validate|add|remove|share ...\n  bar             add|remove|move|show|hide|list|settings|position|form ...\n  help           show this help",
   "Usage: ryoku debug   # print a shareable diagnostic bundle for bug reports": "Usage: ryoku debug   # print a shareable diagnostic bundle for bug reports",
   "Usage: ryoku doctor [--check] [--verbose] [--report [file]] [--explain]\n\n  (no args)        check, and apply the safe automatic fixes\n  --check, -n      report what is wrong without changing anything\n  --verbose, -v    also list the checks that passed and advisory notes\n  --report [file]  write a shareable diagnostic report for the maintainers\n                   (default: %s)\n  --explain        ask your cloud model (Groq/OpenRouter) to reason over the report\n  --json           emit findings as JSON (read-only; powers the Hub System Check)": "Usage: ryoku doctor [--check] [--verbose] [--report [file]] [--explain]\n\n  (no args)        check, and apply the safe automatic fixes\n  --check, -n      report what is wrong without changing anything\n  --verbose, -v    also list the checks that passed and advisory notes\n  --report [file]  write a shareable diagnostic report for the maintainers\n                   (default: %s)\n  --explain        ask your cloud model (Groq/OpenRouter) to reason over the report\n  --json           emit findings as JSON (read-only; powers the Hub System Check)",
@@ -12789,11 +12774,8 @@
   "could not send the next boot to snapshot %s: %v; `ryoku rollback %s` shows how to recover": "could not send the next boot to snapshot %s: %v; `ryoku rollback %s` shows how to recover",
   "could not set gtk-theme to %s: %v": "could not set gtk-theme to %s: %v",
   "could not set the wireless regulatory domain to %s: %v": "could not set the wireless regulatory domain to %s: %v",
-<<<<<<< port (unstable-dev)
-  "could not start %s: %v": "could not start %s: %v",
-=======
   "could not set up this account's Ryoku files: %v": "could not set up this account's Ryoku files: %v",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
+  "could not start %s: %v": "could not start %s: %v",
   "could not start the ASUS Aura provider: %v": "could not start the ASUS Aura provider: %v",
   "could not start the rashin daemon (service exit %d)": "could not start the rashin daemon (service exit %d)",
   "could not start the ryogami wallpaper daemon (service exit %d)": "could not start the ryogami wallpaper daemon (service exit %d)",
@@ -13297,14 +13279,11 @@
   "installed the fingerprint unlock module (pam-fprint-grosshack); touch-to-unlock now works at the lock and login screens": "installed the fingerprint unlock module (pam-fprint-grosshack); touch-to-unlock now works at the lock and login screens",
   "installed the missing Ryoku desktop variant for %s": "installed the missing Ryoku desktop variant for %s",
   "installed:     %s": "installed:     %s",
-<<<<<<< port (unstable-dev)
-=======
   "installer choice manifest has unknown kind '%s'": "installer choice manifest has unknown kind '%s'",
   "installer choice manifest has unknown record '%s'": "installer choice manifest has unknown record '%s'",
   "installer choice manifest is missing": "installer choice manifest is missing",
   "installer pacman hook masks": "installer pacman hook masks",
   "installer pacman hook overrides are absent": "installer pacman hook overrides are absent",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "installing %d packages (profile=%s)": "installing %d packages (profile=%s)",
   "installing GPU drivers for the detected hardware": "installing GPU drivers for the detected hardware",
   "installing Limine EFI binary + boot entry": "installing Limine EFI binary + boot entry",
@@ -14239,11 +14218,8 @@
   "remove %q: %w": "remove %q: %w",
   "remove %s by hand": "remove %s by hand",
   "remove %s?": "remove %s?",
-<<<<<<< port (unstable-dev)
-=======
   "remove its /dev/null mask and .ryoku-off file, then rerun ryoku doctor": "remove its /dev/null mask and .ryoku-off file, then rerun ryoku doctor",
   "remove the Ryoku RPM repository files and signing key?": "remove the Ryoku RPM repository files and signing key?",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "remove the ryoku packages and restore the backup chain": "remove the ryoku packages and restore the backup chain",
   "remove the symlink and recreate %s as a directory by hand": "remove the symlink and recreate %s as a directory by hand",
   "remove them by hand (check ownership/permissions), then `ryoku reload`": "remove them by hand (check ownership/permissions), then `ryoku reload`",
@@ -14285,11 +14261,8 @@
   "repair the volume from a live session if it stays read-only": "repair the volume from a live session if it stays read-only",
   "repaired Ryotunes runtime state": "repaired Ryotunes runtime state",
   "repaired and remounted %s read-write": "repaired and remounted %s read-write",
-<<<<<<< port (unstable-dev)
-  "repaired the Ryogami runtime:": "repaired the Ryogami runtime:",
-=======
   "repaired default app aliases and regenerated desktop settings: %s": "repaired default app aliases and regenerated desktop settings: %s",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
+  "repaired the Ryogami runtime:": "repaired the Ryogami runtime:",
   "replace %s: %w": "replace %s: %w",
   "replaced %s with the repository quickshell; restart the shell to get the desktop back": "replaced %s with the repository quickshell; restart the shell to get the desktop back",
   "replacing %s with the Ryoku zsh framework": "replacing %s with the Ryoku zsh framework",
@@ -14687,11 +14660,8 @@
   "separate password": "separate password",
   "service health could not be checked: %v": "service health could not be checked: %v",
   "session bus: %w": "session bus: %w",
-<<<<<<< port (unstable-dev)
-=======
   "session check reported a problem without details": "session check reported a problem without details",
   "session status unavailable": "session status unavailable",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "session target units": "session target units",
   "session units are still wanted by the retired target, so the desktop comes up with no shell: %s": "session units are still wanted by the retired target, so the desktop comes up with no shell: %s",
   "session units are wanted by the current target": "session units are wanted by the current target",
@@ -15040,13 +15010,10 @@
   "the config for %s (running now) is not laid down complete, so the session keeps the compositor's own defaults or it cannot start": "the config for %s (running now) is not laid down complete, so the session keeps the compositor's own defaults or it cannot start",
   "the config for %s is not laid down complete, so switching back would boot a default session": "the config for %s is not laid down complete, so switching back would boot a default session",
   "the console keymap": "the console keymap",
-<<<<<<< port (unstable-dev)
   "the declarative Ryogami service is in a failed state": "the declarative Ryogami service is in a failed state",
   "the declarative Ryogami service is inactive in this session": "the declarative Ryogami service is inactive in this session",
   "the declarative ryotunesd socket is not enabled": "the declarative ryotunesd socket is not enabled",
-=======
   "the default rice will be applied when the desktop starts": "the default rice will be applied when the desktop starts",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "the desktop cannot load%s, and every file under %s matches the shipped one": "the desktop cannot load%s, and every file under %s matches the shipped one",
   "the desktop cannot load%s: %s": "the desktop cannot load%s: %s",
   "the desktop cannot load: %s was built against Qt %s but this system runs Qt %s": "the desktop cannot load: %s was built against Qt %s but this system runs Qt %s",
@@ -15108,11 +15075,8 @@
   "the overlay how-to is out of date": "the overlay how-to is out of date",
   "the overlay is missing its how-to guide": "the overlay is missing its how-to guide",
   "the package manifest is not managed on this host": "the package manifest is not managed on this host",
-<<<<<<< port (unstable-dev)
-=======
   "the packaged zsh login template is missing": "the packaged zsh login template is missing",
   "the pacman database lock check": "the pacman database lock check",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
   "the pacman keyring is still empty after init + populate; package signatures cannot be verified. The live image's archlinux-keyring is broken; re-download or rewrite the ISO.": "the pacman keyring is still empty after init + populate; package signatures cannot be verified. The live image's archlinux-keyring is broken; re-download or rewrite the ISO.",
   "the password was not accepted three times": "the password was not accepted three times",
   "the plugin tree is %d MB; keep it under 20 MB": "the plugin tree is %d MB; keep it under 20 MB",
@@ -15187,11 +15151,8 @@
   "this box is the machine the release describes": "this box is the machine the release describes",
   "this desktop": "this desktop",
   "this edition. Everything is on this image,": "this edition. Everything is on this image,",
-<<<<<<< port (unstable-dev)
-  "this installer needs systemd (Artix and other non-systemd inits are not supported)": "this installer needs systemd (Artix and other non-systemd inits are not supported)",
-=======
   "this host does not use pacman hooks": "this host does not use pacman hooks",
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
+  "this installer needs systemd (Artix and other non-systemd inits are not supported)": "this installer needs systemd (Artix and other non-systemd inits are not supported)",
   "this installer needs systemd on Arch, Debian and Fedora; Void uses runit": "this installer needs systemd on Arch, Debian and Fedora; Void uses runit",
   "this is an offline install (RYOKU_ONLINE=0) but RYOKU_OFFLINE_REPO is unset, so there is nothing to install from. Boot an ISO that bakes the offline repo, or connect to a network and install online.": "this is an offline install (RYOKU_ONLINE=0) but RYOKU_OFFLINE_REPO is unset, so there is nothing to install from. Boot an ISO that bakes the offline repo, or connect to a network and install online.",
   "this is not a snapshot boot: reboot, open Ryoku snapshots in the boot menu, pick the snapshot, then run this again": "this is not a snapshot boot: reboot, open Ryoku snapshots in the boot menu, pick the snapshot, then run this again",

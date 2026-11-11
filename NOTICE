@@ -129,8 +129,6 @@ runtime variants into one bar, and adds Ryoku settings and per-display
 controls. Quickshell Rise is released under the MIT License; that license is
 compatible with Ryoku's GPL-3 distribution, and the upstream license ships
 unchanged beside the port.
-<<<<<<< port (unstable-dev)
-=======
 
 The Redux dictation adapter (ryoku/hub/backend/assets/redux/adapter.py) is
 voxtype-redux-adapter v0.2.0 by Sipper1236
@@ -172,4 +170,3 @@ client with Vencord. The rest of the Game Bar follows the layout of end-4's
 illogical-impulse overlay (https://github.com/end-4/dots-hyprland) without
 copying its code. ii-p3drovfx is released under the GNU General Public License
 version 3; the ported portions keep that license, compatible with Ryoku's GPL-3.
->>>>>>> upstream Ryoku 1.11.4 (cbce765)

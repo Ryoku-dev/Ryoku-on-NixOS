@@ -84,20 +84,6 @@ func TestLayoutPrimary(t *testing.T) {
 	}
 }
 
-<<<<<<< port (unstable-dev)
-func TestRebuildBootImageSelectsHostGenerator(t *testing.T) {
-	oldHas, oldRun, oldNix := hasBootImageTool, runBootImageTool, isNixBackend
-	isNixBackend = func() bool { return false }
-	t.Cleanup(func() {
-		hasBootImageTool, runBootImageTool, isNixBackend = oldHas, oldRun, oldNix
-	})
-
-	var command string
-	var args []string
-	runBootImageTool = func(got ...string) error {
-		if len(got) == 0 {
-			t.Fatal("boot rebuild ran an empty command")
-=======
 // fakeBootBox points the rebuild at a temp dir of fake generators and the
 // staleness check at temp files, so nothing here reaches sudo or /boot.
 func fakeBootBox(t *testing.T, tools map[string]string) (dir, log string) {
@@ -108,7 +94,6 @@ func fakeBootBox(t *testing.T, tools map[string]string) (dir, log string) {
 		script := "#!/bin/sh\nLOG=" + log + "\necho " + name + " \"$@\" >>\"$LOG\"\n" + body + "\n"
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
 		}
 	}
 	globs, vconsole, stamp := BootImageGlobs, VconsolePath, BootKeymapStamp
@@ -250,15 +235,13 @@ func TestApplySystemReportsHostFailure(t *testing.T) {
 }
 
 func TestNixBackendRefusesSystemKeyboardMutation(t *testing.T) {
-	oldNix, oldApply, oldHas, oldRun := isNixBackend, applySystemKeymap, hasBootImageTool, runBootImageTool
+	oldNix, oldApply := isNixBackend, applySystemKeymap
 	isNixBackend = func() bool { return true }
 	called := false
 	applySystemKeymap = func(string, string, string) int { called = true; return 0 }
-	hasBootImageTool = func(string) bool { called = true; return true }
-	runBootImageTool = func(...string) error { called = true; return nil }
-	t.Cleanup(func() {
-		isNixBackend, applySystemKeymap, hasBootImageTool, runBootImageTool = oldNix, oldApply, oldHas, oldRun
-	})
+	t.Cleanup(func() { isNixBackend, applySystemKeymap = oldNix, oldApply })
+	// Generators that would log if the rebuild ever reached them.
+	_, log := fakeBootBox(t, map[string]string{"limine-mkinitcpio": "", "mkinitcpio": "", "dracut": ""})
 
 	if err := ApplySystem(Layout{Layout: "fr"}); err == nil || !strings.Contains(err.Error(), "NixOS") {
 		t.Fatalf("Nix ApplySystem error = %v", err)
@@ -268,6 +251,9 @@ func TestNixBackendRefusesSystemKeyboardMutation(t *testing.T) {
 	}
 	if called {
 		t.Fatal("Nix keyboard path attempted a mutable system command")
+	}
+	if _, err := os.Stat(log); err == nil {
+		t.Fatal("Nix keyboard path ran a boot image generator")
 	}
 }
 

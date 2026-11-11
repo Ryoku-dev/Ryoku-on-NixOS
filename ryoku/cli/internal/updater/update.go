@@ -747,27 +747,18 @@ func unownedFiles(paths []string) []string {
 
 // RyokuOverwriteGlob names the ryoku-desktop-owned paths that the ISO installer
 // and ryoku/shell/deploy.sh seed unowned before the package began owning them:
-<<<<<<< port (unstable-dev)
-// the privileged helpers, their polkit rules, Plymouth theme, systemd units,
-// initcpio hooks, boot configs, lockscreen bundle, logind drop-in, boot hooks,
-// modules-load policy, udev rules, and the default-app MIME map. A package
-// transition must be able to adopt these paths without an exists-in-filesystem
-// failure. Keep this in sync with the doctor's system ownership repair.
-=======
 // the privileged helpers (ryoku-dns, ryoku-network-kill, ryoku-boot-apply,
 // ryoku-wifi-powersave, ryoku-hub), their polkit rules, the Plymouth splash
 // theme, the ryoku-owned systemd units, the mkinitcpio install hooks the HOOKS
 // drop-in names, the shipped boot configs under /usr/share/ryoku/boot, the
-// Wayfire plugin and its metadata, the logind lid-switch drop-in, the boot hook,
-// the uinput modules-load drop-in, the backlight udev rule, the lockscreen
-// greeter bundle, the default-apps mimeapps map, and the keyring's D-Bus
-// environment drop-in and Secret Service override. Every ryoku-desktop
-// (re)install --overwrites these, or the first upgrade that starts owning a
-// seeded path aborts the whole transaction
+// logind lid-switch drop-in, the boot hook, the uinput modules-load drop-in,
+// the backlight udev rule, the lockscreen greeter bundle, the default-apps
+// mimeapps map, and the keyring's D-Bus environment drop-in and Secret Service
+// override. Every ryoku-desktop (re)install --overwrites these, or the first
+// upgrade that starts owning a seeded path aborts the whole transaction
 // ("exists in filesystem") and blocks every update until the files are removed
 // by hand. Keep in sync with the doctor's ryokuSystemGlobs, which clears the
 // same paths on an already-wedged box.
->>>>>>> upstream Ryoku 1.11.4 (cbce765)
 const RyokuOverwriteGlob = "/usr/bin/ryoku-*," +
 	"/usr/lib/systemd/system/ryoku-*," +
 	"/usr/lib/initcpio/install/ryoku-*," +
