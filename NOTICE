@@ -50,7 +50,8 @@ version 3 with additional section 7 terms; its NOTICE and LICENSE ship unchanged
 beside the code in ryoku/shell/quickshell/inir/.
 
 The Python bar style (ryoku/shell/quickshell/shell/modules/bar/barstyles/python/)
-is based on Serpantinum at commit 3619689 (release 2.3.1) by ilyamiro and
+is based on Serpantinum at commit 3619689 (release 2.3.1), plus the media
+module's hide-when-idle option from commit b4e470a, by ilyamiro and
 contributors (https://github.com/ilyamiro/serpantinum). It is a modified
 version: Ryoku renamed it, gave it its own mark, runs its data plane through
 Ryoku's neutral window-manager seam and services, and uses Ryoku's application
@@ -128,3 +129,47 @@ runtime variants into one bar, and adds Ryoku settings and per-display
 controls. Quickshell Rise is released under the MIT License; that license is
 compatible with Ryoku's GPL-3 distribution, and the upstream license ships
 unchanged beside the port.
+<<<<<<< port (unstable-dev)
+=======
+
+The Redux dictation adapter (ryoku/hub/backend/assets/redux/adapter.py) is
+voxtype-redux-adapter v0.2.0 by Sipper1236
+(https://github.com/Sipper1236/voxtype-redux-adapter), shipped unmodified
+inside ryoku-hub and installed with the Redux model from the Hub's Dictation
+page. It is released under the MIT License, which ships beside it and in the
+notice the installer writes; that license is compatible with Ryoku's GPL-3
+distribution. The installer builds parakeet.cpp by the parakeet.cpp authors
+(https://github.com/mudler/parakeet.cpp, MIT) with its ggml submodule on the
+user's machine and downloads Moondream's Parakeet Redux weights, derived from
+NVIDIA Parakeet TDT 0.6B v3 (CC-BY-4.0); neither ships in a Ryoku package.
+
+The default Vesktop and Equibop theme
+(ryoku/apps/vesktop/themes/ryoku-discord.theme.css) is ryoku.theme.css v3.0.0
+from ryoku-discord by Ron (niqqudim, https://github.com/niqqudim/ryoku-discord)
+at commit d9a0f2d, shipped unmodified under a Ryoku file name so it never
+replaces a copy a user installed by hand. It builds on refact0r's midnight and
+system24 Discord themes
+(https://github.com/refact0r/midnight-discord and
+https://github.com/refact0r/system24, both MIT). The client loads the rest of
+its styles, fonts and artwork from the upstream site when the theme is enabled;
+none of that ships in a Ryoku package. It is released under the MIT License,
+which ships unchanged beside it and is installed as
+/usr/share/licenses/ryoku-desktop/LICENSE.ryoku-discord; that license is
+compatible with Ryoku's GPL-3 distribution.
+
+The Game Bar's Discord Voice widget
+(ryoku/shell/quickshell/shell/modules/gamebar/discordVoice/ and
+ryoku/shell/quickshell/shell/services/DiscordVoice.qml) is based on the Discord
+Voice overlay widget, its RPC bridge and its Vencord companion from
+ii-p3drovfx by P3DROVFX and contributors
+(https://github.com/P3DROVFX/ii-p3drovfx, compared at commit 78e333e), where
+the widget is credited to xephy and the end4-pC contributors and its Discord RPC
+approach to dms-discord-widget by PandorasFox
+(https://github.com/PandorasFox/dms-discord-widget). It is a modified version:
+Ryoku draws it as a Game Bar card in its own look, renames the companion and its
+socket, and leaves out the bar widget and the install path for the official
+client with Vencord. The rest of the Game Bar follows the layout of end-4's
+illogical-impulse overlay (https://github.com/end-4/dots-hyprland) without
+copying its code. ii-p3drovfx is released under the GNU General Public License
+version 3; the ported portions keep that license, compatible with Ryoku's GPL-3.
+>>>>>>> upstream Ryoku 1.11.4 (cbce765)

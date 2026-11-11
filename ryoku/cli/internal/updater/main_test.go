@@ -17,12 +17,19 @@ func TestMain(m *testing.M) {
 	os.Setenv("XDG_RUNTIME_DIR", dir)
 	os.Setenv("XDG_STATE_HOME", dir)
 	os.Setenv("RYOKU_UPDATE_UI", "")
+<<<<<<< port (unstable-dev)
 
 	// NixOS has its own update backend. Unit tests exercise the shared pacman
 	// implementation unless a test explicitly overrides it.
 	oldBackend, hadBackend := os.LookupEnv("RYOKU_UPDATE_BACKEND")
 	os.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
 
+=======
+	// Materialize also seeds the account, and HOME is the developer's here
+	os.Setenv("RYOKU_SHARE_ROOT", dir)
+	os.Unsetenv("RYOKU_SYSTEM_RICES_DIR")
+	accountRepo = func() string { return "" }
+>>>>>>> upstream Ryoku 1.11.4 (cbce765)
 	code := m.Run()
 
 	if hadBackend {

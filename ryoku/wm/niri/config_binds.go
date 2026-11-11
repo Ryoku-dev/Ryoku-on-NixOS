@@ -186,6 +186,7 @@ func shippedBinds() map[string]niriBind {
 		"shell.ask":               {action: spawnArgs("ryoku-shell", "ask")},
 		"shell.rashin":            {action: spawnSh("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")},
 		"shell.cheatsheet":        {action: spawnArgs("ryoku-shell", "cheatsheet")},
+		"shell.gamebar":           {action: spawnArgs("ryoku-shell", "gamebar"), ignoreInhibitor: true},
 		"shell.lock":              {action: spawnArgs("ryoku-shell", "lock")},
 		"shell.quicksettings":     {action: spawnArgs("ryoku-shell", "quicksettings"), ignoreInhibitor: true},
 		"shell.wallpaper":         {action: spawnArgs("ryogami", "wallpaper", "ui")},
@@ -213,7 +214,8 @@ func shippedBinds() map[string]niriBind {
 		"media.volumeDown": {action: spawnArgs("ryoku-volume", "down")},
 		"media.mute":       {action: spawnArgs("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"), noRepeat: true},
 		"media.micMute":    {action: spawnArgs("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"), noRepeat: true},
-		"media.play":       {action: spawnArgs("playerctl", "play-pause"), noRepeat: true},
+		"media.play":       {action: spawnArgs("ryoku-media", "play-pause"), noRepeat: true},
+		"media.pause":      {action: spawnArgs("ryoku-media", "play-pause"), noRepeat: true},
 		"media.next":       {action: spawnArgs("playerctl", "next")},
 		"media.prev":       {action: spawnArgs("playerctl", "previous")},
 

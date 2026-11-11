@@ -418,6 +418,15 @@ func TestRyokuInstallArgsStayInTheRyokuLane(t *testing.T) {
 		"/usr/share/ryoku/boot/default.conf",
 		"/usr/share/ryoku/lockscreen/ryoku-greeter",
 		"/etc/systemd/logind.conf.d/10-ryoku-lid.conf",
+<<<<<<< port (unstable-dev)
+=======
+		"/etc/boot/hooks/post.d/45-ryoku-windows",
+		"/etc/modules-load.d/99-ryoku-uinput.conf",
+		"/usr/lib/udev/rules.d/90-ryoku-backlight.rules",
+		"/usr/local/share/applications/mimeapps.list",
+		"/usr/lib/environment.d/98-ryoku-dbus.conf",
+		"/usr/share/ryoku/xdg/dbus-1/services/org.freedesktop.secrets.service",
+>>>>>>> upstream Ryoku 1.11.4 (cbce765)
 	} {
 		covered := false
 		for _, g := range strings.Split(glob, ",") {

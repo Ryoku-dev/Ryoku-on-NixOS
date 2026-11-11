@@ -1322,6 +1322,7 @@ var surfaceCommands = map[string]string{
 	"quicksettings":       "sidebar-left",
 	"wallpaper-menu":      "wallpaper",
 	"clipboard":           "clipboard",
+	"gamebar":             "gamebar",
 	"settings":            "settings",
 	"cheatsheet":          "cheatsheet",
 	"tools":               "tools",
