@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -374,5 +375,25 @@ func TestISOBackendFailureKeepsDiagnosticsAndBlocksRetry(t *testing.T) {
 		if cmd != nil || m.installing || !m.failed || m.current().key != "confirm" {
 			t.Fatalf("%s restarted installation or cleared failure", key)
 		}
+	}
+}
+
+func TestFailedInstallPointsToBackendOutput(t *testing.T) {
+	// The backend writes the Nix error and the restore result to the normal
+	// terminal screen, which the TUI covers again. The failure screen must
+	// not promise a rollback the backend may not have managed.
+	m := newModel(defaultOptions())
+	m.w, m.h = 112, 40
+	next, _ := m.Update(installDoneMsg{err: errors.New("exit status 1")})
+	m = next.(model)
+	got := m.render()
+	if m.state != "failed" || !strings.Contains(got, "exit status 1") {
+		t.Fatalf("backend failure not shown:\n%s", got)
+	}
+	if strings.Contains(got, "rolled back") {
+		t.Fatalf("failure screen claims a rollback:\n%s", got)
+	}
+	if !strings.Contains(got, "whether your files were restored") {
+		t.Fatalf("failure screen does not point to the backend output:\n%s", got)
 	}
 }

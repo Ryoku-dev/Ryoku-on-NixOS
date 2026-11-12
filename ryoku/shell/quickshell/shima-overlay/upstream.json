@@ -1,0 +1,11 @@
+{
+  "source": "https://github.com/snowarch/iNiR",
+  "archive": "https://codeload.github.com/snowarch/iNiR/tar.gz/48cdcecb0f6089cfbb7019054602eab28e154b3b",
+  "revision": "48cdcecb0f6089cfbb7019054602eab28e154b3b",
+  "archive_sha256": "8fdc4a837cc6828e76004b0b1bcdaa68889de20a6a01a28e25e86acca3aa53fa",
+  "version": "2.33.0",
+  "patch_sha256": "537d40d7817b1d521523bdc8cda97b49a7b55370baaff284008c96acd6f83be1",
+  "runtime_sha256": "2c498b6f440a0804ae147d7cf0de007f2f9859f307b0f6f6a9123e489e485214",
+  "runtime_files": 2409,
+  "overview_patch_sha256": "f3fe7d2ade2c1fc44dc2343f2901d739aee5d9a9bd8d3c886ee4136788fead10"
+}

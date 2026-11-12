@@ -105,16 +105,12 @@ pkgs.stdenv.mkDerivation {
 
     # The E2E suite launches another daemon inside the build sandbox.
     # Ordinary package tests still run here.
-    # Nix normally prints only the last few build-log lines on failure.
-    # Keep the full test output in the sandbox and put failures last.
-    if ! go test -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst|TestPreviewPaletteIsIsolatedCachedAndRestored)$' ./... > "$TMPDIR/ryogami-tests.log" 2>&1; then
-      tail -n 12 "$TMPDIR/ryogami-tests.log" >&2
-      grep -B 6 -A 2 -E -- '^--- FAIL:|^panic:|^# ' "$TMPDIR/ryogami-tests.log" | tail -n 16 >&2 || true
-      grep -E -- '^--- FAIL:|^FAIL|^panic:|^# ' "$TMPDIR/ryogami-tests.log" | tail -n 6 >&2 || true
-      exit 1
-    fi
+    # Stay within the cores Nix grants the build (nixos-install passes
+    # --cores 2 on low-memory machines); Go and Ninja otherwise use every CPU.
+    go test -p "$NIX_BUILD_CORES" -skip '^(TestE2E.*|TestWorkshopWatchCoalescesWriteBurst|TestPreviewPaletteIsIsolatedCachedAndRestored)$' ./...
 
     go build \
+      -p "$NIX_BUILD_CORES" \
       -trimpath \
       -o ryogami \
       .
@@ -133,7 +129,7 @@ pkgs.stdenv.mkDerivation {
       -G Ninja \
       -DCMAKE_BUILD_TYPE=Release
 
-    cmake --build picker-build
+    cmake --build picker-build --parallel "$NIX_BUILD_CORES"
 
     runHook postBuild
   '';

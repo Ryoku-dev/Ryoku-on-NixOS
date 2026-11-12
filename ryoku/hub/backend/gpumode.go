@@ -8,6 +8,7 @@ package main
 // laptop MUX has to flip).
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,13 +19,49 @@ import (
 
 var aqDevicesRe = regexp.MustCompile(`AQ_DRM_DEVICES",\s*"([^"]*)"`)
 
+type gpuModeReport struct {
+	Mode                 string `json:"mode"`
+	PerformanceAvailable bool   `json:"performance_available"`
+	PerformanceReason    string `json:"performance_reason"`
+	PerformanceRoute     string `json:"performance_route"`
+}
+
+type gpuPolicyReport struct {
+	PerformanceAvailable *bool  `json:"performance_available"`
+	PerformanceReason    string `json:"performance_reason"`
+	PerformanceRoute     string `json:"performance_route"`
+}
+
+var gpuPolicyStatusOutput = func() ([]byte, error) {
+	return exec.Command(ryokuGpuBin(), "status", "--json").Output()
+}
+
+func gpuPerformancePolicy() gpuModeReport {
+	open := gpuModeReport{PerformanceAvailable: true}
+	out, err := gpuPolicyStatusOutput()
+	if err != nil {
+		return open
+	}
+	var report gpuPolicyReport
+	if json.Unmarshal(out, &report) != nil || report.PerformanceAvailable == nil {
+		return open
+	}
+	return gpuModeReport{
+		PerformanceAvailable: *report.PerformanceAvailable,
+		PerformanceReason:    report.PerformanceReason,
+		PerformanceRoute:     report.PerformanceRoute,
+	}
+}
+
 func runGpuMode(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("gpu mode needs get|set")
 	}
 	switch args[0] {
 	case "get":
-		return printJSON(map[string]string{"mode": currentGpuMode()})
+		report := gpuPerformancePolicy()
+		report.Mode = currentGpuMode()
+		return printJSON(report)
 	case "set":
 		if len(args) < 2 {
 			return fmt.Errorf("gpu mode set needs hybrid|performance|passthrough")

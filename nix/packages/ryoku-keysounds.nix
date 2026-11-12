@@ -2,7 +2,6 @@
   pkgs,
   src,
 }:
-
 let
   mechvibesSrc = pkgs.runCommand "mechvibes-src" {
     nativeBuildInputs = [ pkgs.git ];

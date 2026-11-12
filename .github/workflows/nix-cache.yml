@@ -1,8 +1,10 @@
 name: Nix binary cache
 
-# Every merge into a lane branch changes what installed systems build on their
-# next update. Build the default install's system closure once here and push it
-# to the cache that installed systems and the installer already trust.
+# After the checks pass on a lane branch, build the default install's system
+# closure and push it to the Cachix cache named by vars.CACHIX_CACHE. Installed
+# systems, the ISO and the installer do not trust that cache (it was removed
+# from the module and installer in bd6c060e and e18cad99); they substitute from
+# cache.nixos.org only.
 on:
   push:
     branches:
@@ -41,11 +43,26 @@ jobs:
           nix build --no-link \
             .#checks.x86_64-linux.ryoku-installer-options \
             .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-tui \
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
             .#checks.x86_64-linux.ryoku-installer-iso \
             .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-display-manager \
+            .#checks.x86_64-linux.ryoku-bridge-command-ownership \
             .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-firstboot-session \
+            .#checks.x86_64-linux.ryoku-firstboot-greeter-guard \
+            .#checks.x86_64-linux.ryoku-firstboot-qml-imports \
+            .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-sddm-theme-apply \
+            .#checks.x86_64-linux.ryoku-install-parser \
+            .#checks.x86_64-linux.ryoku-nix-update-lock \
+            .#checks.x86_64-linux.ryoku-nix-update-local-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-activation-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-refresh \
+            .#checks.x86_64-linux.ryoku-nix-update-interrupt \
+            .#checks.x86_64-linux.ryoku-ci-check-coverage \
             .#checks.x86_64-linux.ryoku-iso-configs
 
   cache:

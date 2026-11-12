@@ -3,6 +3,7 @@
 
   inputs = {
     ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
+    ryomarket.url = "github:Ryoku-dev/ryomarket/7ca1aa29283c09af0050492c059364c99ccb517b";
 
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
@@ -12,15 +13,11 @@
     # host prevents fetchPnpmDeps and other fixed-output builders from changing
     # underneath a Ryoku release when the host updates nixos-unstable.
     ryokuPackagesNixpkgs.url =
-      "github:NixOS/nixpkgs/56c02bc00adcf003215cc4bd996d6efaf4cff188";
+      "github:NixOS/nixpkgs/1c89083e451e891152365b799595cf7790a43325";
 
-    glazepkg = {
-      url = "github:neur0map/glazepkg";
-      inputs.nixpkgs.follows = "ryokuPackagesNixpkgs";
-    };
-
-    hermesAgent = {
-      url = "github:NousResearch/hermes-agent";
+    inirSrc = {
+      url = "github:snowarch/iNiR/48cdcecb0f6089cfbb7019054602eab28e154b3b";
+      flake = false;
     };
 
     skwdWall = {
@@ -28,7 +25,7 @@
     };
 
     hyprglassSrc = {
-      url = "github:hyprnux/hyprglass/v0.7.0";
+      url = "github:hyprnux/hyprglass/v1.1.1";
       flake = false;
     };
 
@@ -41,24 +38,9 @@
       url = "git+https://codeberg.org/zacoons/imgborders.git?ref=master";
       flake = false;
     };
-
-    # RyoManager task manager, pinned to the approved Ryoku UI build.
-    ryomanagerSrc = {
-      url = "github:Ryoku-dev/ryomanager/459c6714e31276f73025369e722cf4ab48eccbc3";
-      flake = false;
-    };
-
-    # Ryotunes now comes from its own flake (RyotunesNix). It owns the Rust
-    # build, the Quickshell client and the wrapper; Ryoku only supplies the
-    # locked nixpkgs and its own QML modules. flake.lock pins the revision.
-    ryotunesNix = {
-      url = "github:Ryoku-dev/RyotunesNix";
-      inputs.nixpkgs.follows = "ryokuPackagesNixpkgs";
-      inputs.ryoku.follows = "ryokuUpstream";
-    };
   };
 
-  outputs = { self, ryokuUpstream, nixpkgs, ryokuPackagesNixpkgs, glazepkg, hermesAgent, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, ryomanagerSrc, ryotunesNix, ... }:
+  outputs = { self, ryokuUpstream, ryomarket, nixpkgs, ryokuPackagesNixpkgs, skwdWall, hyprglassSrc, bibataMaterialSrc, imgbordersSrc, inirSrc, ... }:
     let
       version =
         builtins.replaceStrings
@@ -68,21 +50,29 @@
 
       system = "x86_64-linux";
 
-      quickshellScreencopyFixOverlay = final: prev: {
-        quickshell = prev.quickshell.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [
-            (prev.fetchurl {
-          url = "https://github.com/quickshell-mirror/quickshell/commit/851ab0eac6bdfa9201a1a50e7bc3a6d29af25949.patch";
-          hash = "sha256-g+8NQeFyGK9v76cPM9ogkMSfLH0SGPOyREFkTf6MJ7I=";
-        })
-          ];
-        });
+      quickshellScreencopyFixOverlay = import ./nix/packages/quickshell-screencopy-overlay.nix;
+
+      hyprDynamicCursorsOverlay = final: prev: {
+        hyprlandPlugins = prev.hyprlandPlugins // {
+          hypr-dynamic-cursors =
+            prev.hyprlandPlugins.hypr-dynamic-cursors.overrideAttrs (_old: {
+              version = "0-unstable-2026-10-05";
+
+              src = final.fetchFromGitHub {
+                owner = "VirtCode";
+                repo = "hypr-dynamic-cursors";
+                rev = "2a8d0b735328d874a78ca93b2f201649f712a74a";
+                hash = "sha256-PSt/SRtemvsoGYNFJ7YLiXGxT8EJe3AhmGwt5Vt79aA=";
+              };
+            });
+        };
       };
 
       pkgs = import ryokuPackagesNixpkgs {
         inherit system;
         overlays = [
           quickshellScreencopyFixOverlay
+          hyprDynamicCursorsOverlay
         ];
       };
 
@@ -94,8 +84,6 @@
           hyprglassSrc
           bibataMaterialSrc
           imgbordersSrc
-          ryomanagerSrc
-          ryotunesNix
           skwdPaper
           version
           ;
@@ -135,9 +123,11 @@
         ];
       };
 
+      ryokuShima = import ./nix/packages/ryoku-shima.nix { inherit pkgs; src = inirSrc; };
+
       ryokuNixosModule =
         import ./nix/modules/ryoku.nix {
-          inherit self hermesAgent ryokuUpstream;
+          inherit self ryokuUpstream ryomarket;
           ryokuNixpkgs = pkgs;
         };
 
@@ -183,7 +173,6 @@
               browser = "chromium";
               shell = "fish";
               optionalApps = [ "prompt" ];
-              binaryCache = true;
               ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
             };
@@ -213,6 +202,7 @@
         };
 
       packages.${system} = {
+        ryoku-shima = ryokuShima;
         ryoku-upstream-desktop = ryokuUpstream.packages.${system}.ryoku-desktop;
         ryoku-upstream-nixos-bundle = ryokuUpstreamNixosBundle;
         ryoku-install = ryokuInstall;
@@ -236,16 +226,10 @@
         ryoku-nix-update = ryoku.nixUpdate;
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
-        ryoku-rashin = ryoku.rashin;
         ryoku-ryostore = ryoku.ryostore;
-        ryoku-ryomotion = ryoku.ryomotion;
-        ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
         ryoku-skwd-paper = ryoku.skwdPaper;
-        ryoku-ryotunes = ryoku.ryotunes;
-        ryomanager = ryoku.ryomanager;
-        ryotunes-unwrapped = ryoku.ryotunesUnwrapped;
         ryoku-keysounds = ryoku.keysounds;
         ryoku-qmk-hid = ryoku.qmkHid;
         ryoku-waifu2x = ryoku.waifu2x;
@@ -254,15 +238,13 @@
         ryoku-desktop-data = ryoku.desktopData;
         ryoku-wm-hyprland = ryoku.wmHyprland;
         ryoku-wm-niri = ryoku.wmNiri;
-        ryoku-wm-mango = ryoku.wmMango;
         ryoku-niri = ryoku.niri;
-        ryoku-mango = ryoku.mango;
         ryoku-xwayland-satellite = ryoku.xwaylandSatellite;
 
         # Ryoku owns its compositor ABI. These come from Ryoku's
         # locked nixpkgs rather than the host's package set.
         ryoku-hyprland = pkgs.hyprland.override {
-          makeWrapper = pkgs.makeBinaryWrapper;
+          makeBinaryWrapper = pkgs.makeBinaryWrapper;
         };
         ryoku-xdg-desktop-portal-hyprland = pkgs.xdg-desktop-portal-hyprland;
         ryoku-matugen = pkgs.matugen;
@@ -277,7 +259,6 @@
 
         ryoku-dev = ryokuDev;
         ryoku-materialize = ryokuMaterialize;
-        gpk = glazepkg.packages.${system}.gpk;
 
         default = ryoku.bundle;
       };
@@ -309,6 +290,102 @@
       };
 
       checks.${system} = {
+        ryoku-shima-store-universe = pkgs.runCommand "ryoku-shima-store-universe-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; } ''
+            python3 ${./nix/tests/test-shima-install-source.py} \
+              --project-lock ${./flake.lock} \
+              --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
+              --overlay ${./nix/packages/quickshell-screencopy-overlay.nix} \
+              --tokens ${./ryoku/ui/Singletons/Tokens.qml}
+            touch "$out"
+          '';
+
+        ryoku-shima-appearance = pkgs.runCommand "ryoku-shima-appearance-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.bash ]; } ''
+            python3 ${./nix/tests/test-shima-appearance.py} --runtime ${ryokuShima}
+            touch "$out"
+          '';
+
+        ryoku-shima-layout = pkgs.runCommand "ryoku-shima-layout" {} ''
+          test -x ${ryokuShima}/bin/ryoku-shima
+          test ! -e ${ryokuShima}/bin/inir
+          test -f ${ryokuShima}/share/quickshell/inir/LICENSE
+          for family in Iris Ii Waffle; do
+            test -f ${ryokuShima}/share/quickshell/inir/Shell''${family}Panels.qml
+          done
+          ${ryokuShima}/bin/ryoku-shima --version | grep -F '2.33.0'
+          touch "$out"
+        '';
+
+        # RyoStore builds Shima from the generated install source with a pure
+        # flake evaluation. It must evaluate on its own, to the same derivation
+        # the flake ships.
+        ryoku-subshell-store-source = pkgs.runCommand "ryoku-subshell-store-source-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.nix ]; } ''
+            python3 ${./nix/tests/test-subshell-store-source.py} \
+              --install-source ${import ./nix/packages/shima-install-source.nix { inherit pkgs; src = self; }} \
+              --nixpkgs ${ryokuPackagesNixpkgs} \
+              --inir ${inirSrc} \
+              --expected-drv ${builtins.unsafeDiscardStringContext ryokuShima.drvPath}
+            touch "$out"
+          '';
+
+        # The packaged runtime is the only Shima on a NixOS PATH. The models
+        # mirror system-path (package order, first command wins), restricted
+        # to Ryoku's own packages like ryoku-bridge-command-ownership.
+        ryoku-subshell-nix-ownership =
+          let
+            systemPathModel = name: host: pkgs.buildEnv {
+              inherit name;
+              paths = builtins.filter
+                (pkg: pkgs.lib.hasPrefix "ryoku" (pkgs.lib.getName pkg))
+                host.config.environment.systemPackages;
+              pathsToLink = [ "/bin" ];
+              ignoreCollisions = true;
+            };
+            host = mkIsoConfigSystem { };
+            shimaHost = host.extendModules {
+              modules = [ { programs.ryoku.shima.enable = true; } ];
+            };
+          in
+          pkgs.runCommand "ryoku-subshell-nix-ownership-check"
+            { nativeBuildInputs = [ pkgs.python3 ]; } ''
+              python3 ${./nix/tests/test-subshell-nix-ownership.py} \
+                --shima ${ryokuShima} \
+                --system-path ${systemPathModel "ryoku-shima-system-path-model" shimaHost} \
+                --system-path-without-shima ${systemPathModel "ryoku-system-path-model" host} \
+                --desktop-data ${ryoku.desktopData}
+              touch "$out"
+            '';
+
+        # Every host patch reaches the built runtime, and the injected bridge
+        # routes surfaces to Ryoku's tools the same way as the Arch runtime.
+        ryoku-subshell-runtime = pkgs.runCommand "ryoku-subshell-runtime-check"
+          { nativeBuildInputs = [ pkgs.python3 pkgs.git pkgs.nodejs ]; } ''
+            python3 ${./nix/tests/test-subshell-runtime.py} \
+              --runtime ${ryokuShima} \
+              --patch-dir ${./nix/packages/shima} \
+              --patch-dir ${./ryoku/shell/quickshell/inir/patches} \
+              --arch-overlay-patch ${./ryoku/shell/quickshell/shima-overlay/runtime.patch}
+            touch "$out"
+          '';
+
+        # The Python subshell's weather refresh does not start a refresh chain
+        # while the shell daemon cannot persist the location.
+        ryoku-subshell-python-weather = pkgs.runCommand "ryoku-subshell-python-weather-check"
+          {
+            nativeBuildInputs = with pkgs; [ bash coreutils gnugrep gnused jq procps util-linux ];
+          } ''
+            # The scripts call each other through /usr/bin/env, which the
+            # build sandbox lacks.
+            cp -r ${./ryoku/shell/quickshell/shell/modules/bar/barstyles/python/scripts} scripts
+            chmod -R u+w scripts
+            patchShebangs scripts
+            RYOKU_PYTHON_SCRIPTS="$PWD/scripts" \
+              bash ${./tests/subshell-python-weather-recursion.sh}
+            touch "$out"
+          '';
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;
@@ -319,6 +396,15 @@
           ''
             RYOKU_INSTALL_TEST_BACKEND=${ryokuInstallBackend}/bin/ryoku-install-backend \
               python3 ${./nix/tests/test-installer-transaction.py}
+            touch "$out"
+          '';
+
+        # Verify the packaged installer and backend through a PTY dry run.
+        ryoku-installer-tui = pkgs.runCommand "ryoku-installer-tui-check"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_INSTALL_TEST_BINARY=${ryokuInstall}/bin/ryoku-install \
+              python3 ${./nix/tests/test-installer-tui.py}
             touch "$out"
           '';
 
@@ -366,8 +452,6 @@
             grep -Fq 'choose_install_parallelism' "$backend"
             grep -Fq -- '--max-jobs "$install_jobs"' "$backend"
             grep -Fq -- '--cores "$install_cores"' "$backend"
-            grep -Fq -- '--no-cache' "$backend"
-            grep -Fq 'binaryCache = ''${binary_cache_nix};' "$backend"
             touch "$out"
           '';
 
@@ -394,7 +478,6 @@
           in
           assert generic.config.networking.hostName == "ryoku-ci";
           assert generic.config.programs.ryoku.enable;
-          assert generic.config.programs.ryoku.binaryCache.enable;
           assert generic.config.nix.package == nixpkgs.legacyPackages.${system}.nixVersions.latest;
           assert nvidia.config.services.xserver.videoDrivers == [ "nvidia" ];
           assert nvidia.config.hardware.nvidia.modesetting.enable;
@@ -418,6 +501,21 @@
             touch "$out"
           '';
 
+        ryoku-bridge-command-ownership =
+          let
+            host = (mkIsoConfigSystem { }).config;
+          in
+          import ./nix/tests/bridge-command-ownership.nix {
+            inherit pkgs;
+            bridge = ryoku.nixosSystemBridge;
+            helpers = ryoku.helpers;
+            bundle = ryoku.bundle;
+            shell = ryoku.shell;
+            cli = ryoku.cli;
+            systemPackages = host.environment.systemPackages;
+            polkitRules = host.security.polkit.extraConfig;
+          };
+
         ryoku-installer-wrapper = import ./nix/tests/installer-wrapper.nix {
           inherit pkgs;
           installer = ryokuInstall;
@@ -428,10 +526,49 @@
           module = self.nixosModules.default;
         };
 
+        # Hosts evaluate the module with their nixpkgs input, whose NixOS
+        # display-manager modules are what Ryoku's defaults interact with.
         ryoku-display-manager = import ./nix/tests/display-manager.nix {
-          inherit pkgs;
+          pkgs = nixpkgs.legacyPackages.${system};
           module = self.nixosModules.default;
         };
+
+        # The default install's login sessions, read from its evaluated config.
+        ryoku-firstboot-session = import ./nix/tests/firstboot-session.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          config = (mkIsoConfigSystem { }).config;
+        };
+
+        # Runs the default install's greeter guard unit as systemd starts it.
+        ryoku-firstboot-greeter-guard =
+          let
+            unit = (mkIsoConfigSystem { }).config.systemd.services.ryoku-greeter-guard;
+          in
+          pkgs.runCommand "ryoku-firstboot-greeter-guard-check" { } ''
+            GUARD=${unit.serviceConfig.ExecStart} \
+            SERVICE_PATH=${unit.environment.PATH} \
+              ${pkgs.bash}/bin/bash ${./nix/tests/test-firstboot-greeter-guard.sh}
+            touch "$out"
+          '';
+
+        # Third-party QML imports of the shell against the default install's
+        # ryoku-shell.service import path. Ryoku's own QML entries are dropped
+        # from the build inputs so the check needs only the Qt packages.
+        ryoku-firstboot-qml-imports =
+          let
+            qmlPath = (mkIsoConfigSystem { }).config.systemd.user.services.ryoku-shell.environment.QML2_IMPORT_PATH;
+            thirdParty = builtins.appendContext
+              (builtins.unsafeDiscardStringContext qmlPath)
+              (nixpkgs.lib.filterAttrs (drv: _: !(nixpkgs.lib.hasInfix "-ryoku-" drv))
+                (builtins.getContext qmlPath));
+          in
+          pkgs.runCommand "ryoku-firstboot-qml-imports-check"
+            { nativeBuildInputs = [ pkgs.python3 ]; }
+            ''
+              python3 ${./nix/tests/test-firstboot-qml-imports.py} "${thirdParty}" \
+                ${./ryoku/shell/quickshell} ${./ryoku/ui}
+              touch "$out"
+            '';
 
         # Core runtime
         ryoku-shell = ryoku.shell;
@@ -458,15 +595,10 @@
         ryoku-cli = ryoku.cli;
         ryoku-hub = ryoku.hub;
         ryoku-palette-bridge = ryoku.paletteBridge;
-        ryoku-rashin = ryoku.rashin;
         ryoku-ryostore = ryoku.ryostore;
-        ryoku-ryomotion = ryoku.ryomotion;
-        ryoku-ryovm-helpers = ryoku.ryovmHelpers;
         ryoku-livewall = ryoku.livewall;
         ryoku-ryogami = ryoku.ryogami;
         ryoku-skwd-paper = ryoku.skwdPaper;
-        ryoku-ryotunes = ryoku.ryotunes;
-        ryomanager = ryoku.ryomanager;
         ryoku-keysounds = ryoku.keysounds;
         ryoku-qmk-hid = ryoku.qmkHid;
         ryoku-waifu2x = ryoku.waifu2x;
@@ -496,9 +628,7 @@
         ryoku-desktop-data = ryoku.desktopData;
         ryoku-wm-hyprland = ryoku.wmHyprland;
         ryoku-wm-niri = ryoku.wmNiri;
-        ryoku-wm-mango = ryoku.wmMango;
         ryoku-niri = ryoku.niri;
-        ryoku-mango = ryoku.mango;
         ryoku-xwayland-satellite = ryoku.xwaylandSatellite;
         ryoku-helpers = ryoku.helpers;
         ryoku-nixos-system-bridge = ryoku.nixosSystemBridge;
@@ -625,6 +755,26 @@
             touch "$out"
           '';
 
+        # Interrupted update / channel switch must stop and restore state
+        ryoku-nix-update-interrupt = pkgs.runCommand
+          "ryoku-nix-update-interrupt-check"
+          {
+            nativeBuildInputs = with pkgs; [
+              bash
+              coreutils
+              git
+              gnugrep
+              jq
+              python3
+              util-linux
+            ];
+          }
+          ''
+            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
+              bash ${./nix/tests/test-nix-update-interrupt.sh}
+            touch "$out"
+          '';
+
         ryoku-nix-update-refresh = pkgs.runCommand
           "ryoku-nix-update-refresh-check"
           {
@@ -680,21 +830,20 @@
           }
           ''
             for autostart in ${ryoku.desktopData}/share/ryoku/config/hypr/modules/autostart.lua \
-                             ${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl \
-                             ${ryoku.desktopData}/share/ryoku/config/mango/autostart.conf
+                             ${ryoku.desktopData}/share/ryoku/config/niri/autostart.kdl
             do
               grep -Fq 'ryoku-nix-session-start' "$autostart"
             done
 
             session_module=${./nix/modules/ryoku.nix}
             grep -Fq 'dbus-update-activation-environment --systemd --all' "$session_module"
-            grep -Fq "''${materializer}/bin/ryoku-materialize || true" "$session_module"
+            grep -Fq '    ''${materializeBestEffort}' "$session_module"
             grep -Fq 'systemctl --user restart ryoku-session.target' "$session_module"
 
             niri_module=${./nix/modules/ryoku.nix}
             niri_wrapper="$TMPDIR/niri-session-wrapper-source"
             sed -n '/cat > "$out\/bin\/ryoku-niri-session"/,/chmod 0755/p' "$niri_module" > "$niri_wrapper"
-            grep -Fq "''${materializer}/bin/ryoku-materialize" "$niri_wrapper"
+            grep -Fq "''${materializeBestEffort}" "$niri_wrapper"
             grep -Fq 'exec ''${ryokuNiri}/bin/niri-session' "$niri_wrapper"
             if grep -Fq '[ ! -f "$config_home/niri/config.kdl" ]' "$niri_wrapper"; then
               echo 'Niri session wrapper still conditionally skips generation materialization' >&2
@@ -766,6 +915,26 @@
             RYOKU_QYLOCK_NIX_MODULE=${./nix/modules/ryoku.nix} \
               python3 ${./nix/tests/test-qylock-pam-materialization.py}
 
+            touch "$out"
+          '';
+
+        ryoku-materialize-session = import ./nix/tests/materialize-session.nix {
+          inherit pkgs self;
+        };
+        ryoku-sddm-theme-apply = pkgs.runCommand
+          "ryoku-sddm-theme-apply-check"
+          { nativeBuildInputs = [ pkgs.coreutils pkgs.findutils ]; }
+          ''
+            RYOKU_PATH=${self} bash ${./nix/tests/test-sddm-theme-apply.sh}
+
+            touch "$out"
+          '';
+
+        ryoku-ci-check-coverage = pkgs.runCommand
+          "ryoku-ci-check-coverage"
+          { nativeBuildInputs = [ pkgs.python3 ]; }
+          ''
+            RYOKU_CI_ROOT=${self} python3 ${./nix/tests/test-ci-check-coverage.py}
             touch "$out"
           '';
 

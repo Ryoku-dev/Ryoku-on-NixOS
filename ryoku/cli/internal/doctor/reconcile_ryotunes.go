@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,12 @@ var (
 // user-local launchers, delivers the package once on managed desktops, and keeps
 // socket activation ready where systemd user services are available.
 func reconcileRyotunes(checkOnly bool) recResult {
+	// On NixOS, Ryotunes is no longer part of the base closure. A system
+	// without it is a valid state, so never ask for a rebuild to restore it.
+	// An installed copy still gets the runtime checks below.
+	if sys.NixBackend() && !sys.Has("ryotunes") {
+		return okRes(i18n.T("ryotunes not installed"))
+	}
 	manager, err := doctorPackageManager()
 	if err != nil || manager != host.Pacman && manager != host.XBPS && manager != host.DNF {
 		return noteRes(i18n.T("Ryotunes package checks are not available on this host"))
@@ -145,6 +152,9 @@ func ryotunesUpdateNote() (recResult, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	st, err := ryotunesrelease.Check(ctx)
+	if errors.Is(err, ryotunesrelease.ErrNoRelease) {
+		return noteRes(i18n.T("no Ryotunes 1.x release is published; keeping Ryotunes %s"), st.Installed), true
+	}
 	if err != nil {
 		return noteRes(i18n.T("could not check Ryotunes releases: %v"), err), true
 	}

@@ -1,0 +1,6 @@
+Shima packages iNiR by snowarch and its contributors.
+Upstream: https://github.com/snowarch/iNiR
+Revision: 48cdcecb0f6089cfbb7019054602eab28e154b3b (2.33.0)
+iNiR is licensed under GPL-3.0-only. Its LICENSE and original notices are retained.
+Compatibility changes are in nix/packages/shima and concern Ryoku lifecycle,
+configuration paths, IPC and host ownership. This runtime is experimental.

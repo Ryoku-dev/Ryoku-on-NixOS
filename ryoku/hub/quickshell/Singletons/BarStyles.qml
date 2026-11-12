@@ -12,7 +12,6 @@ QtObject {
         { "id": "qsbar", "name": "QS Bar", "desc": "The configurable module bar.", "installed": true, "unavailable": false },
         { "id": "chroma", "name": "Chroma", "desc": "A vivid compact status bar.", "installed": true, "unavailable": false },
         { "id": "kairos", "name": "Kairos", "desc": "A centered editorial bar.", "installed": true, "unavailable": false },
-        { "id": "iris", "name": "Shima", "desc": "The morphing island and frame desktop.", "installed": true, "unavailable": false },
         { "id": "python", "name": "Python", "desc": "Serpantinum's morphing stage bar.", "installed": true, "unavailable": false }
     ]
     property var items: builtins
@@ -30,6 +29,7 @@ QtObject {
     ]
 
     function nameFor(id) {
+        if (id === "iris") return "Shima";
         for (let i = 0; i < root.items.length; ++i)
             if (root.items[i].id === id)
                 return root.items[i].name;
@@ -53,7 +53,7 @@ QtObject {
                 "active": found.active === true,
                 "version": found.version || "",
                 "installedVersion": found.installedVersion || "",
-                "updateAvailable": false,
+                "updateAvailable": found.updateAvailable === true,
                 "downloadPaused": false,
                 "unavailable": false,
                 "unavailableReason": "",
