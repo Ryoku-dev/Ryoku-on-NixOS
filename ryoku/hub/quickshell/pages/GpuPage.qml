@@ -7,6 +7,7 @@ import Quickshell.Io
 import Quickshell.Services.UPower
 import Ryoku.Ui
 import Ryoku.Ui.Singletons
+import "../schema/GpuPage.js" as GpuSchema
 
 // The Machine page. Real hardware, not the shared config store, so it is
 // full-bleed and draws its own head. Backed by `ryoku-hub gpu` (render mode,
@@ -28,6 +29,10 @@ Item {
     // passthrough dossier + render mode (unchanged backend)
     property var caps: ({})
     property string mode: "hybrid"
+    property bool performanceAvailable: true
+    property string performanceReason: ""
+    property string performanceRoute: ""
+    readonly property var modeOptions: GpuSchema.graphicsModeOptions(pg.performanceAvailable)
     property string planText: ""
     property bool planning: false
     property bool enabling: false
@@ -180,6 +185,8 @@ Item {
         runProc.running = true;
     }
     function setMode(m) {
+        if (m === "performance" && !pg.performanceAvailable)
+            return;
         pg.modeWarn = "";
         modeSetProc.command = ["ryoku-hub", "gpu", "mode", "set", m];
         modeSetProc.running = true;
@@ -286,7 +293,17 @@ Item {
         command: ["ryoku-hub", "gpu", "mode", "get"]
         stdout: StdioCollector {
             onStreamFinished: {
-                try { pg.mode = JSON.parse(this.text).mode; } catch (e) {}
+                try {
+                    var status = JSON.parse(this.text);
+                    pg.mode = status.mode || "hybrid";
+                    pg.performanceAvailable = status.performance_available !== false;
+                    pg.performanceReason = status.performance_reason || "";
+                    pg.performanceRoute = status.performance_route || "";
+                } catch (e) {
+                    pg.performanceAvailable = true;
+                    pg.performanceReason = "";
+                    pg.performanceRoute = "";
+                }
             }
         }
     }
@@ -661,10 +678,23 @@ done
                         Seg {
                             anchors.left: parent.left; anchors.right: parent.right
                             anchors.verticalCenter: parent.verticalCenter
-                            options: ["Hybrid", "Performance", "Passthrough"]
+                            options: pg.modeOptions
                             current: pg.modeLabel(pg.mode)
                             onChose: (label) => pg.setMode(label.toLowerCase())
                         }
+                    }
+
+                    Text {
+                        visible: !pg.performanceAvailable || pg.performanceRoute === "external"
+                        width: parent.width
+                        leftPadding: Tokens.s4; rightPadding: Tokens.s4
+                        topPadding: Tokens.s2
+                        wrapMode: Text.WordWrap
+                        text: pg.performanceAvailable
+                            ? I18n.tr("Performance renders on %1 only when a monitor is plugged into one of its ports at login; otherwise the built-in GPU keeps rendering. While it renders, the built-in screen can stay dark after login or sleep.").arg(pg.dgpuName)
+                            : I18n.tr("Performance unavailable. %1").arg(
+                                I18n.tr(pg.performanceReason || "Switch the laptop's graphics MUX to discrete first."))
+                        color: Tokens.inkFaint; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
                     }
 
                     // what the chosen mode means, spelled out beneath the control.

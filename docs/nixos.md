@@ -2,7 +2,7 @@
 
 Ryoku on NixOS is the NixOS implementation of the Ryoku desktop.
 
-The desktop experience is shared with Ryoku on Arch: Hyprland, niri or MangoWM, the
+The desktop experience is shared with Ryoku on Arch: Hyprland or niri, the
 Ryoku shell, Hub, Ryostore, theming, launcher, lockscreen, media surfaces and
 the wider Ryoku UI all remain Ryoku. The difference is how the operating system
 underneath is managed.
@@ -10,13 +10,40 @@ underneath is managed.
 On NixOS, Ryoku uses Nix packages, NixOS modules and normal NixOS generations
 instead of Pacman, the AUR, mkinitcpio or an Arch-specific boot stack.
 
+## Optional applications
+
+The Ryoku module installs RyoMarket by default. Use it to install Ryotunes,
+RyoManager, RyoStore, RyoMotion, Rashin and Ryoport when needed. The marketplace
+is pinned through this flake's lock file, with its own package set. Its optional
+applications are not added to the base system.
+
+To keep the desktop without the marketplace, set
+`programs.ryomarket.enable = false;`.
+
+Outside a Ryoku installation, run the marketplace directly:
+
+```sh
+nix run github:Ryoku-dev/ryomarket
+```
+
+Applications can also be installed directly, for example:
+
+```sh
+nix run github:Ryoku-dev/ryomarket#install-ryotunes
+```
+
+Replace `ryotunes` with `ryomanager`, `ryostore`, `ryomotion`, `rashin` or
+`ryoport`. The managed installer provides desktop entries and commands and keeps
+application data when removed. VM permissions, GPU passthrough and application
+accounts remain explicit configuration choices.
+
 ## Requirements
 
 Ryoku on NixOS currently targets:
 
 - `x86_64-linux`
 - an existing flake-based NixOS installation
-- Hyprland, niri or MangoWM on Wayland
+- Hyprland or niri on Wayland
 - a reasonably recent NixOS package set
 
 The installer integrates Ryoku into the system you already have. It does **not**
@@ -60,7 +87,7 @@ Useful installer options:
 ```text
 --flake PATH[#HOST]   NixOS flake to configure
 --source REF          Ryoku flake reference
---compositor NAME     Initial compositor: hyprland, niri, or mango
+--compositor NAME     Initial compositor: hyprland or niri
 --browser NAME        Browser: chromium or firefox
 --dry-run             Show proposed changes without writing them
 -y, --yes             Skip confirmation
@@ -165,7 +192,7 @@ The NixOS module provides the machine-facing integration needed by the Ryoku
 desktop, including:
 
 - Ryoku packages and runtime dependencies
-- the Ryoku Hyprland, niri and MangoWM provider/session package sets
+- the Ryoku Hyprland and niri provider/session package sets
 - PipeWire and WirePlumber integration
 - NetworkManager and Bluetooth integration
 - polkit and keyring support
@@ -182,7 +209,7 @@ Both compositor sessions and their Ryoku providers come from Ryoku's locked
 package set. ABI-sensitive Hyprland plugins therefore remain compatible with
 the Hyprland build in the same generation.
 
-At the display manager, choose **Hyprland**, **niri** or **MangoWM**. All three
+At the display manager, choose **Hyprland** or **niri**. Both
 sessions use the same Ryoku shell and neutral desktop settings. The installer's
 `defaultCompositor` choice only preselects the initial session; every provider
 remains deployed, so Hub switching never needs a mutable package transaction.

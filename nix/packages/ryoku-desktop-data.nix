@@ -52,11 +52,6 @@ pkgs.stdenv.mkDerivation {
     mkdir -p "$cfg/niri"
     cp -a ryoku/niri/. "$cfg/niri/"
 
-    # ── Mango ─────────────────────────────────────────────────
-
-    mkdir -p "$cfg/mango"
-    cp -a ryoku/mango/. "$cfg/mango/"
-
     # NixOS owns graphical-session lifecycle through its declarative user
     # units. Route every compositor's upstream session handoff through the
     # Nix-native bootstrap instead of package-manager cutover machinery.
@@ -69,12 +64,6 @@ pkgs.stdenv.mkDerivation {
       --replace-fail \
         'ryoku-host session start xdg-desktop-portal-gnome.service xdg-desktop-portal-gtk.service' \
         'ryoku-nix-session-start'
-
-    substituteInPlace "$cfg/mango/autostart.conf" \
-      --replace-fail \
-        'ryoku-power-cutover session-start-logged' \
-        'ryoku-nix-session-start'
-
 
     # ── Shared translation catalog ─────────────────────────────
     #
@@ -91,6 +80,8 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p "$cfg/quickshell"
     cp -a ryoku/shell/quickshell/. "$cfg/quickshell/"
+    # the pinned Shima overlay feeds the Arch runtime installer; Nix builds Shima from nix/packages/shima
+    rm -rf "$cfg/quickshell/shima-overlay"
 
     # ── Karuma / Nix default bar ──────────────────────────────
 
@@ -212,6 +203,11 @@ pkgs.stdenv.mkDerivation {
       appname="$(basename "$appdir")"
       has_ui=0
 
+      # RyoVM / Ryoport is optional and no longer part of the base closure.
+      if [ "$appname" = ryovm ]; then
+        continue
+      fi
+
       if [ -d "$appdir/quickshell" ]; then
         has_ui=1
         mkdir -p "$cfg/quickshell/$appname"
@@ -226,7 +222,7 @@ pkgs.stdenv.mkDerivation {
           -B "$appbuild" \
           -G Ninja \
           -DCMAKE_BUILD_TYPE=Release
-        cmake --build "$appbuild"
+        cmake --build "$appbuild" --parallel "$NIX_BUILD_CORES"
         install -Dm755 \
           "$appbuild/$appname" \
           "$out/bin/$appname"

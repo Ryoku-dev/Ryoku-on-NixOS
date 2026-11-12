@@ -1,12 +1,13 @@
 -- managed by ryoku-gpu. empty by default = hyprland picks its own GPU.
 --
 -- on a multi-GPU box (discrete radeon/geforce next to the iGPU), the login
--- autostart runs `ryoku-gpu persist`, which rewrites this file with an
--- `hl.env("AQ_DRM_DEVICES", ...)` call pinning the strongest GPU as the
--- primary renderer -- laptops included, GPU work on the iGPU heats the CPU die.
+-- autostart runs `ryoku-gpu persist`. it pins the strongest GPU only when that
+-- GPU also owns the laptop's connected internal panel; otherwise hyprland keeps
+-- choosing the panel-safe renderer.
 --
--- this pin is only a render choice. on a laptop the panel's GPU -- and so
--- whether the dGPU can ever sleep -- is set by the hardware MUX at POST, not by
--- AQ_DRM_DEVICES; manage that with `ryoku-gpu-mux` (a change needs a reboot).
+-- the panel route is set by the hardware MUX at POST, not AQ_DRM_DEVICES.
+-- with the panel on the iGPU, performance mode pins the dGPU only while a
+-- monitor is plugged into one of its ports at login; hybrid leaves GPU
+-- selection to the compositor.
 --
 -- takes effect on the next hyprland login (env is read at start).

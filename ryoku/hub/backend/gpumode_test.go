@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,6 +31,35 @@ func TestClassifyMode(t *testing.T) {
 func TestSlotToken(t *testing.T) {
 	if got := slotToken("0000:01:00.0"); got != "0000-01-00-0" {
 		t.Errorf("slotToken = %q, want 0000-01-00-0", got)
+	}
+}
+
+func TestGpuPerformancePolicy(t *testing.T) {
+	old := gpuPolicyStatusOutput
+	t.Cleanup(func() { gpuPolicyStatusOutput = old })
+
+	gpuPolicyStatusOutput = func() ([]byte, error) {
+		return []byte(`{"performance_available":false,"performance_reason":"Switch the laptop's graphics MUX to discrete first.","performance_route":""}`), nil
+	}
+	r := gpuPerformancePolicy()
+	if r.PerformanceAvailable || r.PerformanceReason != "Switch the laptop's graphics MUX to discrete first." || r.PerformanceRoute != "" {
+		t.Fatalf("gated policy = %+v", r)
+	}
+
+	gpuPolicyStatusOutput = func() ([]byte, error) {
+		return []byte(`{"performance_available":true,"performance_reason":"","performance_route":"external"}`), nil
+	}
+	r = gpuPerformancePolicy()
+	if !r.PerformanceAvailable || r.PerformanceRoute != "external" {
+		t.Fatalf("external-monitor policy = %+v; want available with its route", r)
+	}
+
+	gpuPolicyStatusOutput = func() ([]byte, error) {
+		return nil, errors.New("older ryoku-gpu")
+	}
+	r = gpuPerformancePolicy()
+	if !r.PerformanceAvailable || r.PerformanceReason != "" || r.PerformanceRoute != "" {
+		t.Fatalf("failed status = %+v; want compatible available default", r)
 	}
 }
 

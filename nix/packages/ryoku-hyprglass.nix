@@ -2,7 +2,7 @@
 
 pkgs.hyprlandPlugins.mkHyprlandPlugin {
   pluginName = "hyprglass";
-  version = "0.7.0";
+  version = "1.1.1";
 
   inherit src;
 
@@ -10,6 +10,7 @@ pkgs.hyprlandPlugins.mkHyprlandPlugin {
 
   nativeBuildInputs = [
     pkgs.pkg-config
+    pkgs.wayland-scanner
   ];
 
   buildInputs = [

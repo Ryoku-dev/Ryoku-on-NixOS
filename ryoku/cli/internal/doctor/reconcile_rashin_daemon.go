@@ -442,6 +442,12 @@ func rashinSkillLinksMissing() bool {
 }
 
 func reconcileRashinDaemonNixOS(checkOnly bool) recResult {
+	// The Ryoku NixOS module no longer declares a Rashin service. If the binary
+	// is present anyway (installed by the user), there is no unit for doctor to
+	// reconcile and nothing a rebuild would restore.
+	if rashinService([]string{"--user", "is-enabled", rashinUserUnit}) == host.ExitAbsent {
+		return noteRes("rashin is installed outside the Ryoku NixOS module; its daemon is not managed by doctor")
+	}
 	if !rashinUnitEnabled() {
 		return warnRes("rashin is declared by NixOS but is not enabled in the active generation").
 			withFix("rebuild the NixOS configuration with Ryoku enabled")

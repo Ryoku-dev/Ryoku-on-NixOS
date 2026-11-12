@@ -29,49 +29,86 @@ func pamFilePath() string {
 	return "/etc/pam.d/sddm"
 }
 
-// pamHasKeyring reports whether the stack already carries a pam_gnome_keyring
-// module of the given kind ("auth" or "session"), regardless of its exact form,
-// so an insert never duplicates and status can read the true state.
-func pamHasKeyring(content, kind string) bool {
-	for _, l := range strings.Split(content, "\n") {
-		f := strings.Fields(l)
-		if len(f) > 0 &&
-			strings.TrimPrefix(f[0], "-") == kind &&
-			strings.Contains(l, "pam_gnome_keyring.so") {
-			return true
+func pamKeyringLine(line string) (kind string, dashed bool, ok bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return "", false, false
+	}
+	kind = strings.TrimPrefix(fields[0], "-")
+	if kind != "auth" && kind != "session" {
+		return "", false, false
+	}
+	for _, field := range fields[1:] {
+		if filepath.Base(field) == "pam_gnome_keyring.so" {
+			return kind, strings.HasPrefix(fields[0], "-"), true
 		}
 	}
-	return false
+	return "", false, false
 }
 
-// pamPresent reports whether one PAM stack text wires pam_gnome_keyring at all.
+func pamKeyringCounts(content string) (auth, session int) {
+	for _, line := range strings.Split(content, "\n") {
+		kind, _, ok := pamKeyringLine(line)
+		if !ok {
+			continue
+		}
+		if kind == "auth" {
+			auth++
+		} else {
+			session++
+		}
+	}
+	return auth, session
+}
+
+func pamHasKeyring(content, kind string) bool {
+	auth, session := pamKeyringCounts(content)
+	if kind == "auth" {
+		return auth > 0
+	}
+	return kind == "session" && session > 0
+}
+
 func pamPresent(content string) bool {
-	return pamHasKeyring(content, "auth") || pamHasKeyring(content, "session")
+	auth, session := pamKeyringCounts(content)
+	return auth > 0 || session > 0
 }
 
-// pamPresentAt follows auth/session include and substack edges in the same PAM
-// directory. NixOS keeps SDDM deliberately tiny and delegates to the generated
-// login stack, where pam_gnome_keyring actually lives. Looking only at sddm
-// therefore misclassifies a correctly wired NixOS login as "no PAM".
-func pamPresentAt(path string) bool {
-	return pamPresentAtSeen(path, map[string]bool{})
+func pamWired(content string) bool {
+	auth, session := pamKeyringCounts(content)
+	return auth > 0 && session > 0
 }
 
-func pamPresentAtSeen(path string, seen map[string]bool) bool {
+func pamHasDuplicates(content string) bool {
+	auth, session := pamKeyringCounts(content)
+	return auth > 1 || session > 1
+}
+
+// pamStackAt is the PAM text one service resolves to: its own file plus every
+// auth/session include and substack it pulls from the same directory, each file
+// once. NixOS keeps SDDM deliberately tiny and delegates to the generated login
+// stack, where pam_gnome_keyring actually lives. Reading sddm alone therefore
+// misclassifies a correctly wired NixOS login as "no PAM".
+func pamStackAt(path string) string {
+	var stack strings.Builder
+	pamStackInto(&stack, path, map[string]bool{})
+	return stack.String()
+}
+
+func pamStackInto(stack *strings.Builder, path string, seen map[string]bool) {
 	clean := filepath.Clean(path)
 	if seen[clean] {
-		return false
+		return
 	}
 	seen[clean] = true
 
 	raw, err := os.ReadFile(clean)
 	if err != nil {
-		return false
+		return
 	}
 	content := string(raw)
-	if pamPresent(content) {
-		return true
-	}
+	stack.WriteString(content)
+	stack.WriteString("\n")
 
 	dir := filepath.Dir(clean)
 	for _, line := range strings.Split(content, "\n") {
@@ -80,15 +117,14 @@ func pamPresentAtSeen(path string, seen map[string]bool) bool {
 			(fields[1] != "include" && fields[1] != "substack") {
 			continue
 		}
-		service := fields[2]
-		if filepath.Base(service) != service {
-			continue
-		}
-		if pamPresentAtSeen(filepath.Join(dir, service), seen) {
-			return true
+		if service := fields[2]; filepath.Base(service) == service {
+			pamStackInto(stack, filepath.Join(dir, service), seen)
 		}
 	}
-	return false
+}
+
+func pamPresentAt(path string) bool {
+	return pamPresent(pamStackAt(path))
 }
 
 // insertAfterInclude puts line immediately after the `<kind> include
@@ -108,18 +144,113 @@ func insertAfterInclude(content, kind, line string) (string, bool) {
 	return content, false
 }
 
-// stripKeyring removes every pam_gnome_keyring line, preserving the rest of the
-// stack byte-for-byte.
 func stripKeyring(content string) string {
 	lines := strings.Split(content, "\n")
 	out := lines[:0]
-	for _, l := range lines {
-		if strings.Contains(l, "pam_gnome_keyring.so") {
+	for _, line := range lines {
+		if _, _, ok := pamKeyringLine(line); ok {
 			continue
 		}
-		out = append(out, l)
+		out = append(out, line)
 	}
 	return strings.Join(out, "\n")
+}
+
+func dedupeKeyring(content string) string {
+	lines := strings.Split(content, "\n")
+	keep := make(map[string]int, 2)
+	dashed := make(map[string]bool, 2)
+	for i, line := range lines {
+		kind, isDashed, ok := pamKeyringLine(line)
+		if !ok {
+			continue
+		}
+		if _, found := keep[kind]; !found || isDashed && !dashed[kind] {
+			keep[kind] = i
+			dashed[kind] = isDashed
+		}
+	}
+	out := lines[:0]
+	for i, line := range lines {
+		kind, _, ok := pamKeyringLine(line)
+		if ok && keep[kind] != i {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
+func pamParsable(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+		if strings.HasPrefix(fields[0], "@include") {
+			if len(fields) != 2 {
+				return false
+			}
+			continue
+		}
+		switch strings.TrimPrefix(fields[0], "-") {
+		case "auth", "account", "password", "session":
+			if len(fields) < 3 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// only the bare lines older sddm setups added beside the stack's own ones go,
+// and only when that is exactly what apply-pam would write
+func pamHealDuplicates(content string) (out string, ok bool) {
+	if !pamHasDuplicates(content) || !pamParsable(content) {
+		return content, false
+	}
+	ours := map[string]string{
+		"auth":    strings.Join(strings.Fields(pamAuthLine), " "),
+		"session": strings.Join(strings.Fields(pamSessionLine), " "),
+	}
+	lines := strings.Split(content, "\n")
+	drop := make(map[int]bool)
+	for _, kind := range []string{"auth", "session"} {
+		var mine, theirs []int
+		for i, line := range lines {
+			k, _, isKeyring := pamKeyringLine(line)
+			if !isKeyring || k != kind {
+				continue
+			}
+			if strings.Join(strings.Fields(line), " ") == ours[kind] {
+				mine = append(mine, i)
+			} else {
+				theirs = append(theirs, i)
+			}
+		}
+		switch {
+		case len(theirs) > 1:
+			return content, false
+		case len(theirs) == 0 && len(mine) > 0:
+			mine = mine[1:]
+		}
+		for _, i := range mine {
+			drop[i] = true
+		}
+	}
+	kept := make([]string, 0, len(lines))
+	for i, line := range lines {
+		if !drop[i] {
+			kept = append(kept, line)
+		}
+	}
+	out = strings.Join(kept, "\n")
+	if want, missing := applyPAMText(content, true); len(missing) > 0 || want != out {
+		return content, false
+	}
+	return out, true
 }
 
 // applyPAMText converges the stack for want (unlock-on-login wants the lines
@@ -130,7 +261,7 @@ func applyPAMText(content string, want bool) (out string, missing []string) {
 	if !want {
 		return stripKeyring(content), nil
 	}
-	out = content
+	out = dedupeKeyring(content)
 	if !pamHasKeyring(out, "auth") {
 		var ok bool
 		if out, ok = insertAfterInclude(out, "auth", pamAuthLine); !ok {
