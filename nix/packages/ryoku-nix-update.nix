@@ -19,7 +19,11 @@ pkgs.writeShellApplication {
   ];
 
   text = ''
-    export RYOKU_NIX_FLAKE_EDITOR="${src}/nix/scripts/ryoku-nix-track-edit.py"
+    # Retain only the standalone editor, not the entire repository, at runtime.
+    export RYOKU_NIX_FLAKE_EDITOR="${builtins.path {
+      path = src + "/nix/scripts/ryoku-nix-track-edit.py";
+      name = "ryoku-nix-track-edit.py";
+    }}"
     ${builtins.readFile (src + "/nix/scripts/ryoku-nix-update")}
   '';
 }

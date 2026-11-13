@@ -2,8 +2,16 @@
   description = "Nix packaging for the Ryoku desktop";
 
   inputs = {
-    ryokuUpstream.url = "github:Ryoku-dev/ryoku/unstable-dev";
-    ryomarket.url = "github:Ryoku-dev/ryomarket/7ca1aa29283c09af0050492c059364c99ccb517b";
+    ryokuUpstream = {
+      url = "github:Ryoku-dev/ryoku/unstable-dev";
+      # Share only pins which already have identical revisions and NAR hashes.
+      inputs.skwdWall.inputs.nixpkgs.follows = "skwdWall/nixpkgs";
+    };
+    ryomarket = {
+      url = "github:Ryoku-dev/ryomarket/7ca1aa29283c09af0050492c059364c99ccb517b";
+      inputs.ryoku.inputs.nixpkgs.follows = "ryokuUpstream/nixpkgs";
+      inputs.ryoku.inputs.skwdWall.inputs.nixpkgs.follows = "skwdWall/nixpkgs";
+    };
 
     # Compatibility input for existing consumers which follow their host
     # nixpkgs. Ryoku-owned packages deliberately do not build from this input.
