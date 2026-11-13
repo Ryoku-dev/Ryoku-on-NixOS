@@ -4,7 +4,10 @@ pkgs.stdenv.mkDerivation {
   pname = "ryoku-livewall";
   version = "unstable";
 
-  src = src + "/ryoku/shell/livewall";
+  src = builtins.path {
+    path = src + "/ryoku/shell/livewall";
+    name = "ryoku-livewall-source";
+  };
 
   nativeBuildInputs = [
     pkgs.pkg-config

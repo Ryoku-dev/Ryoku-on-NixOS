@@ -1,10 +1,8 @@
 name: Nix binary cache
 
 # After the checks pass on a lane branch, build the default install's system
-# closure and push it to the Cachix cache named by vars.CACHIX_CACHE. Installed
-# systems, the ISO and the installer do not trust that cache (it was removed
-# from the module and installer in bd6c060e and e18cad99); they substitute from
-# cache.nixos.org only.
+# closure and push it to the public cache trusted by the NixOS module.
+# CACHIX_AUTH_TOKEN must have write access to the ryotunes cache.
 on:
   push:
     branches:
@@ -75,10 +73,8 @@ jobs:
     steps:
       - name: Check cache configuration
         env:
-          CACHE: ${{ vars.CACHIX_CACHE }}
           TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
-          test -n "$CACHE" || { echo 'Missing repository variable: CACHIX_CACHE' >&2; exit 1; }
           test -n "$TOKEN" || { echo 'Missing repository secret: CACHIX_AUTH_TOKEN' >&2; exit 1; }
 
       - name: Free build disk space
@@ -97,7 +93,7 @@ jobs:
       - name: Configure Cachix
         uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
-          name: ${{ vars.CACHIX_CACHE }}
+          name: ryotunes
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build the default install closure

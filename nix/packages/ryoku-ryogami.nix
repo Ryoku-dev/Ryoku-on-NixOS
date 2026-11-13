@@ -32,7 +32,10 @@ pkgs.stdenv.mkDerivation {
   pname = "ryoku-ryogami";
   version = "unstable";
 
-  src = src + "/ryoku/shell/ryogami";
+  src = builtins.path {
+    path = src + "/ryoku/shell/ryogami";
+    name = "ryoku-ryogami-source";
+  };
 
   dontWrapQtApps = true;
   dontConfigure = true;
@@ -74,7 +77,10 @@ pkgs.stdenv.mkDerivation {
         '"${paletteBridge}/share/ryoku/palette-bridge"'
 
     install -Dm644 \
-      ${src}/ryoku/assets/brand/logo-mark-v2.png \
+      ${builtins.path {
+        path = src + "/ryoku/assets/brand/logo-mark-v2.png";
+        name = "logo-mark-v2.png";
+      }} \
       picker/logo-mark-v2.png
 
     substituteInPlace picker/CMakeLists.txt \

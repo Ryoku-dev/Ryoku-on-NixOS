@@ -1009,13 +1009,13 @@ in
       '';
     };
 
-    # Kept only so existing /etc/nixos configs that still set
-    # `programs.ryoku.binaryCache.enable` keep evaluating. It does nothing.
     binaryCache.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      visible = false;
-      description = "Deprecated and ignored. Ryoku no longer configures a binary cache.";
+      description = ''
+        Use Ryoku's public Ryotunes Cachix cache for the NixOS package closure.
+        Only derivations already built and published by CI can be substituted.
+      '';
     };
 
     defaultCompositor = lib.mkOption {
@@ -1097,6 +1097,15 @@ in
 
   config = lib.mkIf cfg.enable {
     programs.ryomarket.enable = lib.mkDefault true;
+
+    # This cache also serves the NixOS closure published by nix-cache.yml;
+    # using it does not install the optional Ryotunes application.
+    nix.settings = lib.mkIf cfg.binaryCache.enable {
+      substituters = lib.mkAfter [ "https://ryotunes.cachix.org" ];
+      trusted-public-keys = lib.mkAfter [
+        "ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs="
+      ];
+    };
 
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.
     # Installing gpu-screen-recorder as a plain package leaves that helper

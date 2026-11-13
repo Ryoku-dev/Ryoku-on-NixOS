@@ -96,7 +96,16 @@
           version
           ;
 
-        src = self;
+        # A path: input includes .git, unlike the Git source used by CI.
+        # Repository metadata and the installer's local Python bytecode cache
+        # must not change package hashes or enter outputs.
+        src = builtins.path {
+          path = self;
+          name = "source";
+          filter = path: _type:
+            path != "${self}/.git"
+            && path != "${self}/nix/apps/__pycache__";
+        };
       };
 
       ryokuDev = import ./nix/apps/ryoku-dev.nix {

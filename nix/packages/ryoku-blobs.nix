@@ -6,7 +6,11 @@ pkgs.stdenv.mkDerivation {
 
   dontWrapQtApps = true;
 
-  src = src + "/ryoku/shell/plugin";
+  # Hash only this module's sources, not the surrounding flake checkout.
+  src = builtins.path {
+    path = src + "/ryoku/shell/plugin";
+    name = "ryoku-blobs-source";
+  };
 
   nativeBuildInputs = [
     pkgs.cmake

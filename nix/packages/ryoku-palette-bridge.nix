@@ -4,7 +4,10 @@ pkgs.stdenv.mkDerivation {
   pname = "ryoku-palette-bridge";
   version = "unstable";
 
-  src = src + "/ryoku/palette-bridge";
+  src = builtins.path {
+    path = src + "/ryoku/palette-bridge";
+    name = "ryoku-palette-bridge-source";
+  };
 
   nativeBuildInputs = [
     pkgs.go

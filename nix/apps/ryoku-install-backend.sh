@@ -36,6 +36,13 @@ target_root="${RYOKU_INSTALL_TARGET_ROOT:-/mnt}"
 iso_work=""
 iso_config_templates="@ISO_CONFIGS@"
 
+# The target's nix.settings only take effect after activation. Use the same
+# public cache for the first build, without modifying the live daemon config.
+bootstrap_cache=(
+  --option extra-substituters "https://ryotunes.cachix.org"
+  --option extra-trusted-public-keys "ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs="
+)
+
 # nixos-install builds into the target store, so the disk must hold the whole
 # fresh closure plus everything Ryoku compiles locally. Measured with a dry
 # run of the generated configuration against an empty store: about 22 GiB is
@@ -547,7 +554,7 @@ EOF_VALUES
 # through an installation that has already wiped the disk.
 check_substituters() {
   local url
-  for url in $(nix config show substituters 2>/dev/null || true); do
+  for url in $(nix config show substituters "${bootstrap_cache[@]}" 2>/dev/null || true); do
     case "$url" in
       http://*|https://*) ;;
       *) continue ;;
@@ -583,7 +590,7 @@ plan_target_install() {
   printf '\nPlanning the installation (what will be downloaded and built)...\n'
   probe="$iso_work/plan-store"
   if ! nix copy --no-check-sigs --derivation --to "local?root=$probe" "$drv" >/dev/null 2>&1 ||
-     ! plan="$(nix build --dry-run --no-link --store "local?root=$probe" "$drv^*" 2>&1)"
+     ! plan="$(nix build --dry-run --no-link "${bootstrap_cache[@]}" --store "local?root=$probe" "$drv^*" 2>&1)"
   then
     chmod -R u+w "$probe" 2>/dev/null || true
     rm -rf "$probe"
@@ -938,6 +945,7 @@ install_iso() {
     if ! nix build \
       --no-link \
       --no-write-lock-file \
+      "${bootstrap_cache[@]}" \
       "path:$iso_work#nixosConfigurations.$install_host.config.system.modulesTree"
     then
       die "NVIDIA kernel-module preflight failed before disk changes; retry with --kernel default or another NVIDIA-compatible kernel"
@@ -1047,7 +1055,8 @@ EOF
     --cores "$install_cores" \
     --root "$target_root" \
     --flake "path:$target_root/etc/nixos#$install_host" \
-    --no-root-passwd
+    --no-root-passwd \
+    "${bootstrap_cache[@]}"
 
   echo "@@RYOKU_STEP finalize"
   run_root sync
@@ -1807,7 +1816,8 @@ echo "@@RYOKU_STEP build"
 printf '\nBuilding NixOS generation...\n'
 
 if ! run_root "$nixos_rebuild" build \
-  --flake "path:$flake_root#$host"
+  --flake "path:$flake_root#$host" \
+  "${bootstrap_cache[@]}"
 then
   abort_transaction "build failed" "files restored"
   exit 1
@@ -1817,7 +1827,8 @@ echo "@@RYOKU_STEP switch"
 printf '\nSwitching generation...\n'
 
 if ! run_root "$nixos_rebuild" switch \
-  --flake "path:$flake_root#$host"
+  --flake "path:$flake_root#$host" \
+  "${bootstrap_cache[@]}"
 then
   abort_transaction "switch failed" "configuration files restored"
   # The new generation was built and may already be the system profile and

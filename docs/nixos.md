@@ -259,6 +259,52 @@ manages `ryoku-shell.service`.
 
 ## Updating
 
+### Binary cache
+
+Ryoku enables `https://ryotunes.cachix.org` alongside the host's existing
+substituters. Despite its name, this cache is also the publication target for
+the Ryoku NixOS default system closure; enabling it does not install Ryotunes.
+The public signing key is
+`ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs=`.
+Set `programs.ryoku.binaryCache.enable = false;` to opt out of the module's
+cache settings.
+
+The installer supplies the cache for its first system build, before the new
+generation's `nix.settings` are active. On an existing installation whose
+daemon does not trust this cache yet, preview with temporary command options:
+
+```bash
+sudo nix build /etc/nixos#nixosConfigurations.my-host.config.system.build.toplevel \
+  --dry-run --no-write-lock-file --max-jobs 0 --builders '' \
+  --option extra-substituters https://ryotunes.cachix.org \
+  --option extra-trusted-public-keys 'ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs='
+```
+
+Replace `my-host` with the host's flake output name. These flags affect this
+command only. An untrusted user's extra substituters/keys may be ignored by
+the daemon. `--dry-run` can still need source inputs during evaluation;
+`--max-jobs 0 --builders ''` prevents local and remote compilation.
+
+Substitution requires the exact derivation to have been published. The cache
+workflow needs `CACHIX_AUTH_TOKEN` with write access to `ryotunes`, builds the
+default system after checks pass, and uploads it. A pending/failed workflow,
+an unpublished local change, or a different package variant can still require
+a build. Blobs, Ryogami and its Livewall/Palette Bridge dependencies hash their
+own source trees so unrelated checkout changes do not invalidate these native
+packages. Package sources also exclude the root `.git` metadata and the
+installer's `nix/apps/__pycache__` from local `path:` inputs, matching the tree
+layout used by CI. Other packages may still
+depend on the complete checkout and on uncommitted or untracked files in a
+local path input.
+
+Not every entry under “derivations will be built” compiles an application:
+NixOS also generates units, wrappers, symlink trees and Fish completions.
+Some of these explicitly disable substitution. Keep the compositor, plugin and
+Qt package pins together; changing versions or removing runtime patches merely
+to find a cached output can break the desktop.
+
+### Updating the generation
+
 Use the normal Ryoku command:
 
 ```bash
