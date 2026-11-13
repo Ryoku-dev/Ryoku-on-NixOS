@@ -255,8 +255,14 @@ class TransactionTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 1, output)
                 self.assertEqual(self.snapshot(host), before, output)
                 self.assertEqual(calls, ["validate", "lock", "build"])
+                # The first build uses the public cache before the target's
+                # declarative nix.settings are activated. Keep checking the
+                # exact invocation, including its URL and signing key.
                 self.assertEqual(rebuild_args,
-                                 ["build --flake path:" + str(host.resolve()) + "#host"])
+                                 ["build --flake path:" + str(host.resolve()) + "#host"
+                                  " --option extra-substituters https://ryotunes.cachix.org"
+                                  " --option extra-trusted-public-keys"
+                                  " ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs="])
                 self.assertIn("@@RYOKU_STEP build", result.stdout)
                 self.assertNotIn("@@RYOKU_STEP switch", result.stdout)
                 self.assertNotIn("@@RYOKU_DONE", result.stdout)
