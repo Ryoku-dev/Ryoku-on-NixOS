@@ -707,52 +707,12 @@ refresh_runtime() {
     pkill -f 'qs -c hub($| )' >/dev/null 2>&1 || true
 }
 
-verify_hyperion_tester() {
-    # A signed invitation needs no GitHub account.
-    if [ -n "${RYOKU_HYPERION_INVITE_VERIFIER:-}" ] &&
-       python3 "$RYOKU_HYPERION_INVITE_VERIFIER" check >/dev/null 2>&1; then
-        return 0
-    fi
-
-    # Organisation members may use their existing gh login instead. gh is
-    # optional and never bundled.
-    if ! command -v gh >/dev/null 2>&1 ||
-       ! login="$(gh api user --jq .login 2>/dev/null)"; then
-        die "no valid Hyperion invitation is stored for this user; run: ryoku-v2 authorize"
-    fi
-
-    case "$login" in
-        ""|*[!a-zA-Z0-9-]*)
-            die "could not verify your GitHub username"
-            ;;
-    esac
-
-    for team in core ryoku-nixos-team testers; do
-        state="$(gh api "orgs/Ryoku-dev/teams/$team/memberships/$login" --jq .state 2>/dev/null)" || continue
-        if [ "$state" = active ]; then
-            return 0
-        fi
-    done
-
-    # Explicit repository collaborators can be approved without joining
-    # the Ryoku organization. GitHub enforces this permission server-side.
-    permission="$(gh api "repos/Ryoku-dev/Ryoku-on-NixOS/collaborators/$login/permission" --jq .permission 2>/dev/null)" || permission=""
-    case "$permission" in
-        read|triage|write|maintain|admin)
-            return 0
-            ;;
-    esac
-
-    die "no valid Hyperion invitation is stored, and GitHub account $login is not an approved tester; run: ryoku-v2 authorize"
-}
-
 track_nix() {
     [ "$#" -eq 1 ] ||
         die "usage: ryoku track <stable|unstable>"
 
     case "$1" in
         hyperion)
-            verify_hyperion_tester
             branch="feature/hyperion-v2-nixos"
             label="hyperion"
             ;;
@@ -818,7 +778,7 @@ track_nix() {
         had_lock=true
     fi
 
-    if ! python3 "$flake_editor" "$new_flake" "$source" "${module_args[@]}"; then
+    if ! RYOKU_NIX_HOST="$host" python3 "$flake_editor" "$new_flake" "$source" "${module_args[@]}"; then
         rm -rf "$work"
         return 1
     fi
