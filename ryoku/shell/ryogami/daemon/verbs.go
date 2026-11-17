@@ -18,6 +18,8 @@ func (d *daemon) dispatchVerb(line string) string {
 		return d.wallpaperVerb(line)
 	case "depth":
 		return d.depthVerb(line)
+	case "pointer":
+		return d.pointerVerb(line)
 	default:
 		return fmt.Sprintf("err unknown command: %s", strings.Fields(line)[0])
 	}
@@ -109,9 +111,20 @@ func (d *daemon) wallpaperVerb(line string) string {
 		d.restoreOutputs()
 		return "ok"
 	case "ui":
+<<<<<<< port (unstable-dev)
 		// A warm picker only flips its surface. A cold one launches visible and
 		// reconciles externally-added Workshop items once, instead of polling
 		// Steam's tree for the entire login session.
+=======
+		if strings.TrimSpace(strings.TrimPrefix(rest, mode)) == "rices" {
+			if d.ui.ensure("RYOGAMI_START_RICES=1") {
+				d.broadcast("ryogami.wall.rices", map[string]interface{}{})
+			}
+			return "ok"
+		}
+		// Resident picker: flip its surface over the event hub; a dead or
+		// not-yet-started instance cold-launches already visible instead.
+>>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
 		if d.ui.ensure() {
 			d.broadcast("ryogami.wall.toggle", map[string]interface{}{})
 		} else {
@@ -143,6 +156,9 @@ func (d *daemon) wallpaperVerb(line string) string {
 		} else {
 			d.surface.republish()
 		}
+		return "ok"
+	case "playback-sync":
+		d.reevaluatePause()
 		return "ok"
 	case "":
 		return "err wallpaper: missing mode"

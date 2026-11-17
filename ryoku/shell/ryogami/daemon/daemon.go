@@ -77,6 +77,8 @@ type daemon struct {
 
 	workshop *workshopLib
 	paper    *paperClient
+
+	scenePointer *scenePointerFeed
 }
 
 func (d *daemon) config() config {
@@ -163,6 +165,7 @@ func runDaemon() error {
 	d.playlists = newPlaylistManager(cfg.cacheDir(), d)
 	d.sources = newSources(d)
 	d.paper = newPaperClient(d)
+	d.scenePointer = newScenePointerFeed(d.paper.workers)
 	d.workshop = newWorkshopLib(d)
 	d.migrateLegacyConfig()
 	d.migratePickerState()
