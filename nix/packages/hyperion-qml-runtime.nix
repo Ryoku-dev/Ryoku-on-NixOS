@@ -1,4 +1,4 @@
-{ pkgs, src, upstreamQml }:
+{ pkgs, src, upstreamQml, lithic }:
 
 let
   qmlRoot = "lib/qt-6/qml";
@@ -14,6 +14,10 @@ let
 in
 pkgs.runCommand "ryoku-hyperion-qml-runtime" { } ''
   cp -a ${upstreamQml}/. "$out/"
+  chmod u+w "$out/${qmlRoot}"
+  chmod -R u+w "$out/${qmlRoot}/Lithic"
+  rm -rf "$out/${qmlRoot}/Lithic"
+  cp -a ${lithic}/${qmlRoot}/Lithic "$out/${qmlRoot}/Lithic"
   chmod u+w "$out/${qmlRoot}/Ryoku" "$out/${qmlRoot}/Ryoku/Ui" "$out/${qmlRoot}/Ryoku/Ui/Singletons"
 
   mkdir -p "$out/${qmlRoot}/Ryoku/Ui/lib"

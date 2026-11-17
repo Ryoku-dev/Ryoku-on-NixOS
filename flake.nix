@@ -184,10 +184,20 @@
         ryoku.nixUpdate
       ];
 
+      # Qt 6.11 does not expose Accessible.expanded on this control.
+      # Rebuild just the Lithic module so its embedded QML can load in Settings.
+      hyperionLithic = hyperionRyoku.lithic.overrideAttrs (old: {
+        postPatch = (old.postPatch or "") + ''
+          substituteInPlace qml/Lithic/Disclosure.qml \
+            --replace-fail '    Accessible.expanded: open' '    Accessible.description: open ? "Expanded" : "Collapsed"'
+        '';
+      });
+
       hyperionQmlRuntime = import ./nix/packages/hyperion-qml-runtime.nix {
         pkgs = hyperionPkgs;
         src = ryokuHyperion;
         upstreamQml = ryokuHyperion.packages.${system}.ryoku-qml;
+        lithic = hyperionLithic;
       };
 
       hyperionRyotunes = import ./nix/packages/hyperion-ryotunes.nix {
@@ -701,6 +711,18 @@
           hyperionPackages = ryokuHyperion.packages.${system};
           ryokuPackages = self.packages.${system};
         };
+
+        ryoku-hyperion-lithic-settings = pkgs.runCommand "ryoku-hyperion-lithic-settings-check" { } ''
+          module=lib/qt-6/qml/Lithic/liblithic.so
+          test -s ${hyperionQmlRuntime}/"$module"
+          test -s ${hyperionLithic}/"$module"
+          cmp ${hyperionQmlRuntime}/"$module" ${hyperionLithic}/"$module"
+          if cmp -s ${ryokuHyperion.packages.${system}.ryoku-qml}/"$module" ${hyperionQmlRuntime}/"$module"; then
+            echo "Hyperion runtime still contains the unpatched Lithic module" >&2
+            exit 1
+          fi
+          touch "$out"
+        '';
 
         ryoku-hyperion-bundle-provenance = import ./nix/tests/hyperion-bundle-provenance.nix {
           inherit pkgs hyperionRyoku hyperionOptionalApps hyperionRetired;
