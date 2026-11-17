@@ -57,7 +57,7 @@ PanelWindow {
         tasks: { w: 350, h: 270 },
         media: { w: 358, h: 235 },
         voice: { w: 358, h: 336 },
-        audio: { w: 350, h: 282 },
+        audio: { w: 350, h: 326 },
         gallery: { w: 350, h: 290 }
     })
     readonly property real maxCardW: 358 * win.us
@@ -79,7 +79,9 @@ PanelWindow {
 
     // Only cards that can resize carry limits; the rest keep their drawn size.
     readonly property var cardLimits: ({
-        voice: { minW: 300, minH: 280, maxW: 640, maxH: 640 }
+        voice: { minW: 300, minH: 280, maxW: 640, maxH: 640 },
+        media: { minW: 300, minH: 200, maxW: 640, maxH: 560 },
+        audio: { minW: 300, minH: 240, maxW: 640, maxH: 640 }
     })
 
     function glyphFor(id) {
@@ -372,20 +374,6 @@ PanelWindow {
         }
     }
 
-    // A pinned card is a picture once the bar closes: no mask rect, so the
-    // whole surface falls through and it takes no pointer or keyboard focus.
-    function maskRect(id) {
-        // While dragging, one full-surface region covers every card, so the per
-        // card rects stay at zero and the mask never changes between moves.
-        if (win.dragCard !== "" || !win.shown(id))
-            return { x: 0, y: 0, w: 0, h: 0 };
-        if (!win.takingInput)
-            return { x: 0, y: 0, w: 0, h: 0 };
-        const p = win.positionFor(id);
-        const size = win.sizeFor(id);
-        return { x: Math.round(p.x), y: Math.round(p.y), w: Math.round(size.w), h: Math.round(size.h) };
-    }
-
     Connections {
         target: GameBarStore
         function onOpenChanged() {
@@ -454,62 +442,9 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
     mask: Region {
-        Region {
-            x: strip.x; y: strip.y
-            width: win.takingInput ? strip.width : 0
-            height: win.takingInput ? strip.height : 0
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("capture")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("performance")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("resources")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("tasks")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("media")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("voice")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("audio")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        Region {
-            readonly property var rect: win.maskRect("gallery")
-            x: rect.x; y: rect.y; width: rect.w; height: rect.h
-            intersection: Intersection.Combine
-        }
-        // A dragged or resized card must not let the pointer fall through to
-        // the bar, the dock or the game, so the surface takes the whole screen.
-        // It lets go with the bar: closing or suppressing mid-drag must not
-        // leave the game without a pointer.
-        Region {
-            x: 0; y: 0
-            width: win.takingInput && (win.dragCard !== "" || win.resizeCard !== "") ? win.width : 0
-            height: win.takingInput && (win.dragCard !== "" || win.resizeCard !== "") ? win.height : 0
-            intersection: Intersection.Combine
-        }
+        x: 0; y: 0
+        width: win.takingInput ? win.width : 0
+        height: win.takingInput ? win.height : 0
     }
 
     // Opening fades in once the surface is mapped instead of popping on.

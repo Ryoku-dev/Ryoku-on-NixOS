@@ -15,6 +15,7 @@ import (
 	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 	"ryoku-cli/internal/updater"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +42,7 @@ import (
 const ryokuIssuesURL = "https://github.com/ryoku-dev/ryoku/issues"
 
 var (
+	doctorReconcilers    = platformReconcilers
 	doctorPackageManager = func() (host.PackageManager, error) {
 		return host.Default().PackageManager()
 	}
@@ -161,6 +163,7 @@ const (
 	recWouldFix
 	recWarn
 	recFailed
+	recDismissed
 )
 
 func (s recStatus) label() string {
@@ -177,6 +180,8 @@ func (s recStatus) label() string {
 		return "warn"
 	case recFailed:
 		return "fail"
+	case recDismissed:
+		return "dismissed"
 	}
 	return "?"
 }
@@ -458,9 +463,13 @@ func runReconcilers(checkOnly bool) []finding {
 	fetchFedoraReleaseStatus := doctorFedoraReleaseStatus
 	doctorFedoraReleaseStatus = sync.OnceValues(fetchFedoraReleaseStatus)
 	defer func() { doctorFedoraReleaseStatus = fetchFedoraReleaseStatus }()
+	saved, err := loadDismissals()
 	var out []finding
-	for _, r := range platformReconcilers() {
-		out = append(out, finding{name: r.name, res: r.run(checkOnly)})
+	if err != nil {
+		out = append(out, finding{name: i18n.T("doctor dismissals"), res: failRes("read dismissals: %v", err)})
+	}
+	for _, r := range doctorReconcilers() {
+		out = append(out, finding{name: r.name, res: runWithDismissals(r, checkOnly, saved)})
 	}
 	return out
 }
@@ -477,7 +486,7 @@ func printFindings(fs []finding, verbose bool) (warns, fails int) {
 		case recFailed:
 			fails++
 		}
-		if !verbose && (f.res.status == recOK || f.res.status == recNote) {
+		if !verbose && (f.res.status == recOK || f.res.status == recNote || f.res.status == recDismissed) {
 			continue
 		}
 		printed++
@@ -489,7 +498,7 @@ func printFindings(fs []finding, verbose bool) (warns, fails int) {
 		if f.res.detail != "" {
 			fmt.Fprintln(w, detailStyle(f.res.status, sys.Wrap(f.res.detail, width, "      ")))
 		}
-		if f.res.remedy != "" && (f.res.status >= recWouldFix || f.res.status == recNote) {
+		if f.res.remedy != "" && (f.res.status == recWouldFix || f.res.status == recWarn || f.res.status == recFailed || f.res.status == recNote) {
 			fmt.Fprintln(w, sys.Brand(sys.Wrap("↳ "+f.res.remedy, width, "      ")))
 		}
 	}
@@ -503,7 +512,7 @@ func statusGlyph(s recStatus) string {
 	switch s {
 	case recOK, recFixed:
 		return sys.Green("✓")
-	case recNote:
+	case recNote, recDismissed:
 		return sys.Dim("·")
 	case recWouldFix:
 		return sys.Amber("›")
@@ -523,11 +532,14 @@ func statusName(f finding) string {
 	if f.res.status == recFixed {
 		name += sys.Dim(" " + i18n.T("(fixed)"))
 	}
+	if f.res.status == recDismissed {
+		name += sys.Dim(" " + i18n.T("(dismissed)"))
+	}
 	return name
 }
 
 func detailStyle(s recStatus, text string) string {
-	if s == recOK || s == recFixed || s == recNote {
+	if s == recOK || s == recFixed || s == recNote || s == recDismissed {
 		return sys.Dim(text)
 	}
 	return text
@@ -535,6 +547,7 @@ func detailStyle(s recStatus, text string) string {
 
 func doctorUsage() {
 	fmt.Print(i18n.Tf("Usage: ryoku doctor [--check] [--verbose] [--report [file]] [--explain]\n\n  (no args)        check, and apply the safe automatic fixes\n  --check, -n      report what is wrong without changing anything\n  --verbose, -v    also list the checks that passed and advisory notes\n  --report [file]  write a shareable diagnostic report for the maintainers\n                   (default: %s)\n  --explain        ask your cloud model (Groq/OpenRouter) to reason over the report\n  --json           emit findings as JSON (read-only; powers the Hub System Check)\n", reportPath("")))
+	fmt.Print(i18n.T("\n  --dismiss <name>  dismiss a current warn or todo by its full check name\n  --restore <name>  restore a dismissed check\n  --dismissed       list saved dismissals (also accepts --json)\n  Dismissals expire when the status, detail or remedy changes beyond whitespace.\n"))
 }
 
 // MigrateShellConfig applies only deterministic shell-store migrations. NixOS
@@ -558,6 +571,7 @@ func MigrateShellConfig() error {
 func Run(args []string) error {
 	checkOnly, wantReport, wantExplain, wantJSON, verboseFlag := false, false, false, false, false
 	reportTo := ""
+	dismissAction, dismissName := "", ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
 		case "--check", "-n", "--dry-run":
@@ -574,12 +588,39 @@ func Run(args []string) error {
 			verboseFlag = true
 		case "--json":
 			wantJSON = true
+		case "--dismiss", "--restore", "--dismissed":
+			if dismissAction != "" {
+				return fmt.Errorf(i18n.T("choose only one dismissal action"))
+			}
+			dismissAction = strings.TrimPrefix(a, "--")
+			if a == "--dismissed" {
+				dismissAction = "list"
+			} else {
+				if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") || strings.TrimSpace(args[i+1]) == "" {
+					return fmt.Errorf(i18n.T("%s requires a check name"), a)
+				}
+				i++
+				dismissName = args[i]
+			}
 		case "-h", "--help":
 			doctorUsage()
 			return nil
 		default:
 			return fmt.Errorf(i18n.T("unknown argument: %s (try --help)"), a)
 		}
+	}
+	if dismissAction != "" {
+		if checkOnly || wantReport || wantExplain || verboseFlag || wantJSON && dismissAction != "list" {
+			return fmt.Errorf(i18n.T("dismissal actions cannot be combined with diagnostic flags"))
+		}
+		if err := configureDoctorUser(dismissAction == "list"); err != nil {
+			return err
+		}
+		var checks []reconciler
+		if dismissAction == "dismiss" {
+			checks = doctorReconcilers()
+		}
+		return manageDismissals(dismissAction, dismissName, checks, wantJSON)
 	}
 
 	// read-only modes never mutate; showAll also lists ok + advisory notes.
@@ -968,12 +1009,16 @@ func reconcileSnapperAccess(checkOnly bool) recResult {
 	if snapperReadableUnprivileged() {
 		return okRes(i18n.T("snapshots are readable without sudo"))
 	}
+	contents := snapperRootConfigContents()
 	if checkOnly {
+		if _, stale := liveSnapshotReaders(configValue(contents, "ALLOW_USERS")); len(stale) > 0 {
+			return wouldRes(i18n.T("the snapshot config still allows %s, no longer an account on this system, so snapper refuses every command including cleanup"), strings.Join(stale, " ")).
+				withFix(i18n.T("drop the missing accounts from ALLOW_USERS and grant %s read access"), user)
+		}
 		return wouldRes(i18n.T("`ryoku status` cannot count snapshots without a cached sudo credential, so it can read as \"0\" on a machine that has them")).
 			withFix(i18n.T("grant %s read access (snapper ALLOW_USERS + SYNC_ACL)"), user)
 	}
 	// ALLOW_USERS is a list; writing only this user locks every other account out
-	contents := snapperRootConfigContents()
 	if contents == "" && sys.Sudo("-v") == nil {
 		contents = snapperRootConfigContents()
 	}
@@ -981,7 +1026,15 @@ func reconcileSnapperAccess(checkOnly bool) recResult {
 		return failRes(i18n.T("could not read the snapper root config, so %s was not added beside the accounts it already allows"), user).
 			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=\"<accounts already listed> %s\" SYNC_ACL=yes"), user)
 	}
-	allow := allowUsersWith(configValue(contents, "ALLOW_USERS"), user)
+	live, stale := liveSnapshotReaders(configValue(contents, "ALLOW_USERS"))
+	if len(stale) > 0 {
+		// snapper cannot load a config naming a missing account, set-config included
+		if err := writeRootFile("/etc/snapper/configs/root", withConfigValue(contents, "ALLOW_USERS", live), "0640"); err != nil {
+			return failRes(i18n.T("dropping %s from the snapshot readers: %v"), strings.Join(stale, " "), err).
+				withFix(i18n.T("edit ALLOW_USERS in /etc/snapper/configs/root to list only existing accounts"))
+		}
+	}
+	allow := allowUsersWith(live, user)
 	if err := sys.Run("sudo", "snapper", "-c", "root", "set-config",
 		"ALLOW_USERS="+allow, "SYNC_ACL=yes"); err != nil {
 		return failRes(i18n.T("granting %s snapshot read access: %v"), user, err).
@@ -1001,6 +1054,26 @@ func allowUsersWith(current, user string) string {
 		}
 	}
 	return strings.Join(append(users, user), " ")
+}
+
+// accountExists asks NSS, so directory accounts count; only getent's
+// "not found" answer marks a name as gone
+var accountExists = func(name string) bool {
+	var exit *exec.ExitError
+	err := exec.Command("getent", "passwd", name).Run()
+	return !errors.As(err, &exit) || exit.ExitCode() != 2
+}
+
+func liveSnapshotReaders(current string) (string, []string) {
+	var live, stale []string
+	for _, name := range strings.Fields(current) {
+		if accountExists(name) {
+			live = append(live, name)
+		} else {
+			stale = append(stale, name)
+		}
+	}
+	return strings.Join(live, " "), stale
 }
 
 // snapperReadableUnprivileged reports whether the current user can list the root
@@ -1848,9 +1921,9 @@ func reconcileDockStore(checkOnly bool) recResult {
 	} else if !os.IsNotExist(stageErr) {
 		return warnRes(i18n.T("could not read %s: %v"), stagePath, stageErr)
 	}
-	if len(stagePins) > 0 {
+	if len(stagePins) > 0 && !dockPinsConfigured(migrated) {
 		var merged bool
-		migrated, merged, err = mergeDockPins(migrated, stagePins)
+		migrated, merged, err = mergeDockPins(migrated, installedDockPins(stagePins))
 		if err != nil {
 			return warnRes(i18n.T("shell.json does not parse (%v); the shell falls back to defaults"), err)
 		}
@@ -2182,6 +2255,9 @@ func jsonValuesEqual(left, right json.RawMessage) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// Stage's schema writes these back on every save; they were never user pins
+var stageDefaultDockPins = []string{"org.kde.dolphin", "kitty"}
+
 func migrateStageDockStore(raw []byte) ([]byte, []string, map[string]json.RawMessage, bool, error) {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
@@ -2202,13 +2278,15 @@ func migrateStageDockStore(raw []byte) ([]byte, []string, map[string]json.RawMes
 	}
 	var pins []string
 	if oldPins, ok := dock["pinnedApps"]; ok {
-		pins = appendDockPins(nil, oldPins)
-		delete(dock, "pinnedApps")
-		top["dock"], err = encodeObject(dock)
-		if err != nil {
-			return nil, nil, nil, false, err
+		if found := appendDockPins(nil, oldPins); !slices.Equal(found, stageDefaultDockPins) {
+			pins = found
+			delete(dock, "pinnedApps")
+			top["dock"], err = encodeObject(dock)
+			if err != nil {
+				return nil, nil, nil, false, err
+			}
+			changed = true
 		}
-		changed = true
 	}
 
 	legacyShima := map[string]json.RawMessage{}
@@ -2347,6 +2425,40 @@ func mergeDockPins(raw []byte, extra []string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	return append(out, '\n'), true, nil
+}
+
+// once the user edited the shared list, it alone decides what is pinned
+func dockPinsConfigured(raw []byte) bool {
+	var top struct {
+		Dock struct {
+			PinnedConfigured bool `json:"pinnedConfigured"`
+		} `json:"dock"`
+	}
+	return json.Unmarshal(raw, &top) == nil && top.Dock.PinnedConfigured
+}
+
+// matches nautilus to org.gnome.Nautilus.desktop too
+func installedDockPins(pins []string) []string {
+	user, system := applicationDirs()
+	known := map[string]bool{}
+	for _, dir := range append([]string{user}, system...) {
+		entries, _ := os.ReadDir(dir)
+		for _, entry := range entries {
+			id, ok := strings.CutSuffix(strings.ToLower(entry.Name()), ".desktop")
+			if !ok {
+				continue
+			}
+			known[id] = true
+			known[id[strings.LastIndex(id, ".")+1:]] = true
+		}
+	}
+	var out []string
+	for _, pin := range pins {
+		if known[pin] {
+			out = append(out, pin)
+		}
+	}
+	return out
 }
 
 func mustJSON(value any) json.RawMessage {
