@@ -611,7 +611,7 @@ func (m model) render() string {
 		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(m.opts.iso), "", bold(cGreen, checkGlyph()+"  "+title), "", fg(cSub, "The installer backend completed successfully."))
 		foot = keyHint("enter", "close")
 	case "failed":
-		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(m.opts.iso), "", bold(cRed, "Installation failed"), "", fg(cText, fmt.Sprint(m.err)), "", fg(cSub, "Your installer-managed files are rolled back by the backend on build/switch failure."))
+		body = lipgloss.JoinVertical(lipgloss.Center, logoBlock(m.opts.iso), "", bold(cRed, "Installation failed"), "", fg(cText, fmt.Sprint(m.err)), "", fg(cSub, "Quit (q) to see the backend output: the Nix error and whether your files were restored."))
 		foot = keyHint("r", "retry") + fg(cDim, "    ") + keyHint("q", "quit")
 	}
 	placed := lipgloss.Place(m.w, m.h-2, lipgloss.Center, lipgloss.Center, body)

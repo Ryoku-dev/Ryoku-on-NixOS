@@ -48,6 +48,16 @@ func menuID(cmd string) (string, bool) {
 // qsSelect: qs config selector for a component. by repo path in dev, by config
 // name when deployed.
 func qsSelect(name string) []string {
+	if name == "shell" {
+		if root, ok := activeShimaRoot.Load().(string); ok && root != "" {
+			return []string{"-p", root}
+		}
+	}
+	return nativeSelect(name)
+}
+
+// nativeSelect is the Ryoku config selector, ignoring a selected Shima root.
+func nativeSelect(name string) []string {
 	if shellDir != "" {
 		return []string{"-p", filepath.Join(shellDir, "quickshell", name)}
 	}
@@ -388,9 +398,9 @@ func ensureSessionLocked(deadline time.Time) error {
 	}
 }
 
-// spawnLocker starts the long-lived qylock wrapper. The wrapper owns crash
-// recovery so its budget cannot be multiplied by a second daemon-side retry
-// loop; this goroutine only reaps it when the lock cycle ends.
+// spawnLocker starts the long-lived qylock wrapper. The wrapper handles client
+// crashes while it lives; the daemon watchdog relaunches this wrapper if the
+// whole launcher disappears before an authenticated unlock.
 func spawnLocker(_ int) error {
 	launcher, err := exec.LookPath("ryoku-qylock-lock")
 	if err != nil {

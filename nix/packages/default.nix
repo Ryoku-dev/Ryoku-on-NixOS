@@ -4,8 +4,6 @@
   hyprglassSrc,
   bibataMaterialSrc,
   imgbordersSrc,
-  ryomanagerSrc,
-  ryotunesNix,
   skwdPaper,
   version,
 }:
@@ -14,7 +12,7 @@ let
   qmlRoot = "lib/qt-6/qml";
 
   shell = import ./ryoku-shell.nix {
-    inherit pkgs src;
+    inherit pkgs src nixosSystemBridge;
   };
 
   desktopData = import ./ryoku-desktop-data.nix {
@@ -31,11 +29,6 @@ let
     provider = "niri";
   };
 
-  wmMango = import ./ryoku-wm-provider.nix {
-    inherit pkgs src;
-    provider = "mango";
-  };
-
   # Niri 26.04 retains layer-shell surfaces when a physical output is
   # removed, so repeated DPMS/hotplug cycles accumulate their buffers.
   # Upstream PR #4485 fixes #1457 by cleaning each output's layer map before
@@ -45,21 +38,6 @@ let
     patches = (old.patches or [ ]) ++ [
       ../patches/niri-output-layer-cleanup.patch
     ];
-  });
-
-  # Ryoku 0.82.2 targets Mango 0.17.4. The package in Ryoku's
-  # deliberately pinned nixpkgs universe is still 0.16.1, so keep
-  # the dependency ABI from that universe while updating the source.
-  ryokuMango = pkgs.mango.overrideAttrs (_old: {
-    pname = "ryoku-mango";
-    version = "0.17.4";
-
-    src = pkgs.fetchFromGitHub {
-      owner = "mangowm";
-      repo = "mango";
-      tag = "0.17.4";
-      sha256 = "1n9mbbf9g2h3lk3h8v084s2drvzq5zc0im5fr6ck5ycpgg0xhf38";
-    };
   });
 
   xwaylandSatellite = import ./xwayland-satellite.nix {
@@ -73,6 +51,7 @@ let
       version
       desktopData
       paletteBridge
+      nixosSystemBridge
       ;
   };
 
@@ -88,23 +67,11 @@ let
     inherit pkgs src;
   };
 
-  rashin = import ./ryoku-rashin.nix {
-    inherit pkgs src desktopData;
-  };
-
   prowlAgent = import ./prowl-agent.nix {
     inherit pkgs;
   };
 
   ryostore = import ./ryoku-ryostore.nix {
-    inherit pkgs src;
-  };
-
-  ryomotion = import ./ryoku-ryomotion.nix {
-    inherit pkgs;
-  };
-
-  ryovmHelpers = import ./ryoku-ryovm-helpers.nix {
     inherit pkgs src;
   };
 
@@ -131,28 +98,13 @@ let
       ;
   };
 
-  # Ryotunes is built by the RyotunesNix flake, with no local patches.
-  # Its Rust binaries and Quickshell client come from that flake as-is;
-  # only the wrapper is instantiated here so it links against Ryoku's own
-  # QML modules (`qml` below) instead of a second copy from another input.
-  ryotunesUnwrapped =
-    ryotunesNix.packages.${pkgs.stdenv.hostPlatform.system}.ryotunes-unwrapped;
-
-  ryotunes = pkgs.callPackage "${ryotunesNix}/nix/wrapper.nix" {
-    inherit ryotunesUnwrapped;
-    ryokuQml = qml;
-  };
-
-  ryomanager = import ./ryomanager.nix {
-    inherit pkgs ryomanagerSrc;
-  };
-
   keysounds = import ./ryoku-keysounds.nix {
     inherit pkgs src;
   };
 
   helpers = import ./ryoku-helpers.nix {
     inherit pkgs src;
+    bridgeCommands = nixosSystemBridge.passthru.commands;
   };
 
   hyprglass = import ./ryoku-hyprglass.nix {
@@ -305,37 +257,31 @@ let
       platforms = [ "x86_64-linux" ];
     };
 
+    # The NixOS bridge comes first: it owns its privileged command names.
     paths = [
+      nixosSystemBridge
       shell
       cli
       nixUpdate
       hub
       paletteBridge
-      rashin
       prowlAgent
       ryostore
-      ryomotion
-      ryovmHelpers
       livewall
       ryogami
       skwdPaper
-      ryotunes
-      ryomanager
       qmkHid
       waifu2x
       desktopData
       wmHyprland
       wmNiri
-      wmMango
       helpers
-      nixosSystemBridge
       qml
     ];
   };
 in
 {
   niri = ryokuNiri;
-  mango = ryokuMango;
 
   inherit
     shell
@@ -343,24 +289,17 @@ in
     nixUpdate
     hub
     paletteBridge
-    rashin
     prowlAgent
     ryostore
-    ryomotion
-    ryovmHelpers
     livewall
     ryogami
     skwdPaper
-    ryotunes
-    ryomanager
-    ryotunesUnwrapped
     keysounds
     qmkHid
     waifu2x
     desktopData
     wmHyprland
     wmNiri
-    wmMango
     helpers
     nixosSystemBridge
     hyprglass

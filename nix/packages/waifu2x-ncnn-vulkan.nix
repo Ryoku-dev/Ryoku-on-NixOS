@@ -1,7 +1,7 @@
 { pkgs }:
 
 let
-  version = "20250915";
+  version = "20250802";
 in
 pkgs.stdenv.mkDerivation {
   pname = "waifu2x-ncnn-vulkan";
@@ -9,17 +9,13 @@ pkgs.stdenv.mkDerivation {
 
   src = pkgs.fetchurl {
     url = "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/${version}/waifu2x-ncnn-vulkan-${version}-linux.zip";
-    hash = "sha256-hI4PulVlfTTakLd1uBOemAbcdUeYsCn5XhBrqIUKcx8=";
+    hash = "sha256-H8uk8Aw5+DV1VA02eaevraZaI4yzLuACY3XT1N6UpSs=";
   };
 
   nativeBuildInputs = [
     pkgs.unzip
     pkgs.autoPatchelfHook
-
-    # waifu2x loads the host Vulkan driver at runtime. On NixOS
-    # that driver lives under /run/opengl-driver rather than a
-    # conventional FHS library directory.
-    pkgs.autoAddDriverRunpath
+    pkgs.makeWrapper
   ];
 
   buildInputs = [
@@ -69,7 +65,12 @@ pkgs.stdenv.mkDerivation {
 
     install -Dm755 \
       "$binary" \
-      "$out/bin/waifu2x-ncnn-vulkan"
+      "$out/libexec/waifu2x-ncnn-vulkan"
+
+    makeWrapper \
+      "$out/libexec/waifu2x-ncnn-vulkan" \
+      "$out/bin/waifu2x-ncnn-vulkan" \
+      --prefix LD_LIBRARY_PATH : "/run/opengl-driver/lib"
 
     mkdir -p \
       "$out/share/waifu2x-ncnn-vulkan"

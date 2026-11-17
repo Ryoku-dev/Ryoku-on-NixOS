@@ -23,6 +23,10 @@ func TestMain(m *testing.M) {
 	oldBackend, hadBackend := os.LookupEnv("RYOKU_UPDATE_BACKEND")
 	os.Setenv("RYOKU_UPDATE_BACKEND", "pacman")
 
+	// Materialize also seeds the account, and HOME is the developer's here
+	os.Setenv("RYOKU_SHARE_ROOT", dir)
+	os.Unsetenv("RYOKU_SYSTEM_RICES_DIR")
+	accountRepo = func() string { return "" }
 	code := m.Run()
 
 	if hadBackend {

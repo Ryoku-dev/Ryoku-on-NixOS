@@ -94,3 +94,20 @@ func TestRyotunesNativeRepositoryCheckOnlyUsesHostAdvice(t *testing.T) {
 		t.Fatalf("remedy = %q", result.remedy)
 	}
 }
+
+func TestRyotunesAbsentOnNixOSIsNotAProblem(t *testing.T) {
+	t.Setenv("RYOKU_UPDATE_BACKEND", "nix")
+	t.Setenv("HOME", t.TempDir())
+	// An empty PATH and no profile roots means Ryotunes cannot be found.
+	t.Setenv("PATH", t.TempDir())
+
+	for _, checkOnly := range []bool{true, false} {
+		result := reconcileRyotunes(checkOnly)
+		if result.status != recOK {
+			t.Fatalf("checkOnly=%v status = %s, detail = %q", checkOnly, result.status.label(), result.detail)
+		}
+		if strings.Contains(result.remedy+result.detail, "rebuild") {
+			t.Fatalf("checkOnly=%v asks for a rebuild: %q %q", checkOnly, result.detail, result.remedy)
+		}
+	}
+}

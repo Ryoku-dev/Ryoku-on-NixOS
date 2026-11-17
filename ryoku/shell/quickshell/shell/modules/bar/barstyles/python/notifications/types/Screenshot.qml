@@ -1,3 +1,4 @@
+import shell.services as ShellIcons
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -63,15 +64,16 @@ Notification {
                 visible: false
             }
 
-            Image {
+            BoundedImage {
                 id: rawBgImg
                 anchors.fill: parent
                 source: {
                     let p = faceRoot.getImagePath();
                     if (!p || p === "") return "";
+                    if (p.startsWith("image://icon/")) return ShellIcons.Icons.path(p, true);
                     if (p.startsWith("file://") || p.startsWith("http://") || p.startsWith("https://") || p.startsWith("image://")) return p;
                     if (p.startsWith("/")) return "file://" + p;
-                    return "image://icon/" + p;
+                    return ShellIcons.Icons.path(p, true);
                 }
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true

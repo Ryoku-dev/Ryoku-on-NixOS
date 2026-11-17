@@ -42,7 +42,7 @@ func TestWorkshopWatchCoalescesWriteBurst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const debounce = 50 * time.Millisecond
+	const debounce = workshopWatchDebounce
 	rescans := make(chan struct{}, 8)
 	type watchResult struct {
 		rebuild bool
@@ -67,8 +67,8 @@ func TestWorkshopWatchCoalescesWriteBurst(t *testing.T) {
 	}
 	select {
 	case <-rescans:
-	case <-time.After(time.Second):
-		t.Fatal("workshop writes did not trigger a rescan")
+	case <-time.After(2 * debounce):
+    t.Fatal("workshop writes did not trigger a rescan")
 	}
 	select {
 	case <-rescans:

@@ -2,12 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +50,14 @@ const (
 	nmDeviceWifi     = 2
 )
 
+const (
+	nmConnectivityUnknown = 0
+	nmConnectivityNone    = 1
+	nmConnectivityPortal  = 2
+	nmConnectivityLimited = 3
+	nmConnectivityFull    = 4
+)
+
 // networkState holds the one system-bus connection and the topic the network
 // frames publish to.
 type networkState struct {
@@ -56,11 +66,24 @@ type networkState struct {
 
 	cacheMu sync.Mutex
 	cache   *networkSnapshot
+
+	ip ipEdits // IPv4 changes waiting for confirmation (network_ip.go)
 }
 
 type networkSnapshot struct {
 	frame map[string]any
 	aps   map[dbus.ObjectPath]map[string]any
+}
+
+type networkConnection struct {
+	Kind         string `json:"kind"`
+	Connectivity string `json:"connectivity"`
+	Online       bool   `json:"online"`
+}
+
+type primaryDevice struct {
+	typ   uint32
+	state uint32
 }
 
 // apInfo is one access point flattened to the fields the reveal renders.
@@ -84,6 +107,8 @@ type savedConn struct {
 	id          string
 	typ         string
 	ssid        string
+	mode        string // 802-11-wireless.mode; "ap" for a hotspot
+	iface       string // connection.interface-name; "" when any adapter may use it
 	autoconnect bool
 	// vpnService is vpn.service-type for a type "vpn" profile, e.g.
 	// "org.freedesktop.NetworkManager.openvpn"; empty for every other type.
@@ -198,11 +223,11 @@ func (d *daemon) startNetwork() {
 		}
 		return nil, n.wgSetActive(a.Uuid, false)
 	})
-	// wgImport mirrors the reference exactly: it is the one place the reference
-	// shells out (contract 06 sec 4 runs `nmcli connection import type
-	// wireguard file <path>`), because parsing a .conf into NetworkManager's
-	// nested settings is what nmcli's importer already does. This is an action,
-	// not a status read, so it is not the polling defect the topic replaces.
+	// wgImport shells out as the reference does (contract 06 sec 4 runs
+	// `nmcli connection import type wireguard file <path>`), because parsing a
+	// .conf into NetworkManager's nested settings is what nmcli's importer
+	// already does. This is an action, not a status read, so it is not the
+	// polling defect the topic replaces.
 	d.registerCall("network.wgImport", func(raw json.RawMessage) (any, error) {
 		var a struct {
 			Path string `json:"path"`
@@ -210,7 +235,8 @@ func (d *daemon) startNetwork() {
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, wgImport(a.Path)
+		_, err := n.wgImport(a.Path)
+		return nil, err
 	})
 	d.registerCall("network.vpnActivate", func(raw json.RawMessage) (any, error) {
 		var a struct {
@@ -239,6 +265,9 @@ func (d *daemon) startNetwork() {
 		}
 		return nil, n.wgDelete(a.Uuid)
 	})
+	n.registerIPCalls(d)
+	n.registerEthernetCalls(d)
+	n.registerVpnCalls(d)
 
 	n.publish()
 }
@@ -405,14 +434,19 @@ func (n *networkState) snapshotState() *networkSnapshot {
 		wired["connectivity"] = connectivityFromState(n.uintProp(n.obj(wiredDev), nmDeviceIface+".State"))
 	}
 
+	connection := n.primaryConnection()
+
 	return &networkSnapshot{
 		frame: map[string]any{
-			"wifi":         wifi,
-			"wired":        wired,
-			"accessPoints": aps,
-			"wireguard":    n.wireguardTunnels(saved, active),
-			"vpn":          vpnProfileFrames(saved, n.vpnLiveState(saved, active)),
-			"dns":          n.dnsFrame(),
+			"wifi":             wifi,
+			"wired":            wired,
+			"connection":       connection,
+			"accessPoints":     aps,
+			"wireguard":        n.wireguardTunnels(saved, active),
+			"vpn":              vpnProfileFrames(saved, n.vpnLiveState(saved, active)),
+			"dns":              n.dnsFrame(),
+			"ethernet":         ethernetFrames(n.wiredDevices()),
+			"ethernetProfiles": ethernetProfileFrames(saved, active),
 		},
 		aps: apsByPath,
 	}
@@ -469,6 +503,60 @@ func deviceRank(state uint32) int {
 	}
 }
 
+func summarizePrimaryConnection(connectivity uint32, devices []primaryDevice) networkConnection {
+	summary := networkConnection{Connectivity: networkManagerConnectivity(connectivity)}
+	if connectivity != nmConnectivityFull {
+		return summary
+	}
+	for _, device := range devices {
+		if device.state != 100 {
+			continue
+		}
+		summary.Online = true
+		if device.typ == nmDeviceWifi {
+			summary.Kind = "wifi"
+		} else {
+			summary.Kind = "ethernet"
+		}
+		break
+	}
+	return summary
+}
+
+func networkManagerConnectivity(connectivity uint32) string {
+	switch connectivity {
+	case nmConnectivityNone:
+		return "none"
+	case nmConnectivityPortal:
+		return "portal"
+	case nmConnectivityLimited:
+		return "limited"
+	case nmConnectivityFull:
+		return "full"
+	default:
+		return "unknown"
+	}
+}
+
+func (n *networkState) primaryConnection() networkConnection {
+	connectivity := n.uintProp(n.obj(nmPath), nmIface+".Connectivity")
+	primary := n.pathProp(n.obj(nmPath), nmIface+".PrimaryConnection")
+	if primary == "" || primary == "/" {
+		return summarizePrimaryConnection(connectivity, nil)
+	}
+
+	paths := n.pathSliceProp(n.obj(primary), nmActiveIface+".Devices")
+	devices := make([]primaryDevice, 0, len(paths))
+	for _, path := range paths {
+		device := n.obj(path)
+		devices = append(devices, primaryDevice{
+			typ:   n.uintProp(device, nmDeviceIface+".DeviceType"),
+			state: n.uintProp(device, nmDeviceIface+".State"),
+		})
+	}
+	return summarizePrimaryConnection(connectivity, devices)
+}
+
 // apPaths lists the access points the wifi device currently sees, in service
 // order.
 func (n *networkState) apPaths(wifiDev dbus.ObjectPath) []dbus.ObjectPath {
@@ -519,6 +607,7 @@ func (n *networkState) savedConnections() []savedConn {
 			c.typ, _ = conn["type"].Value().(string)
 			c.id, _ = conn["id"].Value().(string)
 			c.uuid, _ = conn["uuid"].Value().(string)
+			c.iface, _ = conn["interface-name"].Value().(string)
 			// NetworkManager omits connection.autoconnect when it is on (its
 			// default), so an absent key means enabled; only an explicit false
 			// turns it off.
@@ -532,6 +621,7 @@ func (n *networkState) savedConnections() []savedConn {
 			if b, ok := w["ssid"].Value().([]byte); ok {
 				c.ssid = decodeSsid(b)
 			}
+			c.mode, _ = w["mode"].Value().(string)
 		}
 		if v := s["vpn"]; v != nil {
 			c.vpnService, _ = v["service-type"].Value().(string)
@@ -572,9 +662,10 @@ func (n *networkState) wireguardTunnels(saved []savedConn, active map[string]dbu
 		}
 		_, isActive := active[c.uuid]
 		out = append(out, map[string]any{
-			"uuid":   c.uuid,
-			"name":   c.id,
-			"active": isActive,
+			"uuid":        c.uuid,
+			"name":        c.id,
+			"active":      isActive,
+			"autoconnect": c.autoconnect,
 		})
 	}
 	return out
@@ -650,32 +741,41 @@ func (n *networkState) wifiConnect(ssid, password, bssid string, hidden bool) er
 		nmBand = nmBandForFrequency(ap.Frequency)
 	}
 
-	for _, c := range n.savedConnections() {
-		if c.typ == "802-11-wireless" && c.ssid == ssid {
-			if password != "" {
-				if err := n.updatePassword(c.path, password, keyMgmtForSecurity(apSec)); err != nil {
-					return err
-				}
-			}
-			if bssid != "" && nmBand != "" {
-				if err := n.updateBand(c.path, nmBand); err != nil {
-					return err
-				}
-			}
-			var active dbus.ObjectPath
-			if err := n.obj(nmPath).Call(nmIface+".ActivateConnection", 0, c.path, dbus.ObjectPath(wifiDev), specific).Store(&active); err != nil {
+	if profiles := wifiProfiles(ssid, n.savedConnections()); len(profiles) > 0 {
+		c := profiles[0]
+		if password != "" {
+			if err := n.updatePassword(c.path, password, keyMgmtForSecurity(apSec)); err != nil {
 				return err
 			}
-			return n.waitForActivation(active)
 		}
+		if bssid != "" && nmBand != "" {
+			if err := n.updateBand(c.path, nmBand); err != nil {
+				return err
+			}
+		}
+		var active dbus.ObjectPath
+		if err := n.obj(nmPath).Call(nmIface+".ActivateConnection", 0, c.path, dbus.ObjectPath(wifiDev), specific).Store(&active); err != nil {
+			return err
+		}
+		return n.waitForActivation(active)
 	}
 	settings := wifiConnectSettings(ssid, password, bssid, ap, hidden)
 	var newConn, newActive dbus.ObjectPath
 	if err := n.obj(nmPath).Call(nmIface+".AddAndActivateConnection", 0, settings, dbus.ObjectPath(wifiDev), specific).Store(&newConn, &newActive); err != nil {
 		return err
 	}
-	return n.waitForActivation(newActive)
+	err := n.waitForActivation(newActive)
+	if errors.Is(err, errActivationFailed) {
+		// NetworkManager keeps the profile it just created even when the
+		// passphrase is wrong, so the network would read as saved and every
+		// later join would retry the bad secret without asking for a new one.
+		// A timeout keeps it: that join may still be coming up.
+		_ = n.obj(newConn).Call(nmSettConnIface+".Delete", 0).Err
+	}
+	return err
 }
+
+var errActivationFailed = errors.New("could not connect (check the password)")
 
 // waitForActivation blocks until the connection activates, so a wrong passphrase
 // or a timeout returns an error instead of the old silent "success".
@@ -683,18 +783,31 @@ func (n *networkState) waitForActivation(active dbus.ObjectPath) error {
 	if active == "" || active == "/" {
 		return nil
 	}
-	const stateActivated, stateDeactivated = 2, 4
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		switch n.uintProp(n.obj(active), nmActiveIface+".State") {
-		case stateActivated:
-			return nil
-		case stateDeactivated:
-			return fmt.Errorf("could not connect (check the password)")
+		v, err := n.obj(active).GetProperty(nmActiveIface + ".State")
+		state, _ := v.Value().(uint32)
+		if done, result := activationOutcome(state, err); done {
+			return result
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
 	return fmt.Errorf("connection timed out")
+}
+
+// activationOutcome reads one poll of an active connection's State. A failed
+// activation is torn down within milliseconds, so its object vanishing from the
+// bus (the read failing) is a failure too; reading that as "still activating"
+// held every wrong-password join for the full timeout. Pure for unit tests.
+func activationOutcome(state uint32, readErr error) (bool, error) {
+	const stateActivated, stateDeactivated = 2, 4
+	if readErr != nil || state == stateDeactivated {
+		return true, errActivationFailed
+	}
+	if state == stateActivated {
+		return true, nil
+	}
+	return false, nil
 }
 
 // editableSettings reads a saved profile's settings in a shape that can be
@@ -819,26 +932,36 @@ func (n *networkState) wifiForget(ssid string) error {
 	if ssid == "" {
 		return fmt.Errorf("empty ssid")
 	}
-	for _, c := range n.savedConnections() {
-		if c.typ == "802-11-wireless" && c.ssid == ssid {
-			return n.obj(c.path).Call(nmSettConnIface+".Delete", 0).Err
+	profiles := wifiProfiles(ssid, n.savedConnections())
+	if len(profiles) == 0 {
+		return fmt.Errorf("no saved network: %s", ssid)
+	}
+	var first error
+	for _, c := range profiles {
+		if err := n.obj(c.path).Call(nmSettConnIface+".Delete", 0).Err; err != nil && first == nil {
+			first = err
 		}
 	}
-	return fmt.Errorf("no saved network: %s", ssid)
+	return first
 }
 
-// wifiSetAutoconnect resolves the saved profile behind ssid and flips its
-// autoconnect, mirroring wifiForget's lookup by SSID.
+// wifiSetAutoconnect flips autoconnect on every saved profile behind ssid,
+// mirroring wifiForget's lookup by SSID: any profile left on still rejoins.
 func (n *networkState) wifiSetAutoconnect(ssid string, enabled bool) error {
 	if ssid == "" {
 		return fmt.Errorf("empty ssid")
 	}
-	for _, c := range n.savedConnections() {
-		if c.typ == "802-11-wireless" && c.ssid == ssid {
-			return n.updateAutoconnect(c.path, enabled)
+	profiles := wifiProfiles(ssid, n.savedConnections())
+	if len(profiles) == 0 {
+		return fmt.Errorf("no saved network: %s", ssid)
+	}
+	var first error
+	for _, c := range profiles {
+		if err := n.updateAutoconnect(c.path, enabled); err != nil && first == nil {
+			first = err
 		}
 	}
-	return fmt.Errorf("no saved network: %s", ssid)
+	return first
 }
 
 func (n *networkState) dnsFrame() map[string]any {
@@ -945,17 +1068,47 @@ func (n *networkState) wgDelete(uuid string) error {
 	return n.obj(conn).Call(nmSettConnIface+".Delete", 0).Err
 }
 
-// wgImport runs nmcli's WireGuard config importer, exactly as the reference
-// does (contract 06 sec 4).
-func wgImport(path string) error {
+var importedUuid = regexp.MustCompile(`\(([0-9a-f-]{36})\)`)
+
+// wgImportFile runs nmcli's WireGuard config importer, as the reference does
+// (contract 06 sec 4), and returns the new profile's UUID.
+func wgImportFile(path string) (string, error) {
 	if path == "" {
-		return fmt.Errorf("empty path")
+		return "", fmt.Errorf("empty path")
 	}
 	out, err := exec.Command("nmcli", "connection", "import", "type", "wireguard", "file", path).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("wireguard import failed: %v: %s", err, out)
+		return "", fmt.Errorf("wireguard import failed: %s", strings.TrimSpace(string(out)))
 	}
-	return nil
+	m := importedUuid.FindStringSubmatch(string(out))
+	if m == nil {
+		return "", fmt.Errorf("wireguard import gave no profile: %s", strings.TrimSpace(string(out)))
+	}
+	return m[1], nil
+}
+
+// wgImport imports a tunnel and leaves it off. nmcli saves an imported
+// tunnel with auto-connect on and brings it up at once, so a tunnel that
+// routes everything would take over the machine's traffic the moment it was
+// imported; it now waits to be switched on.
+func (n *networkState) wgImport(path string) (string, error) {
+	uuid, err := wgImportFile(path)
+	if err != nil {
+		return "", err
+	}
+	conn, err := n.connByUuid(uuid)
+	if err != nil {
+		return "", err
+	}
+	if err := n.updateAutoconnect(conn, false); err != nil {
+		return uuid, err
+	}
+	if ac, up := n.activeConnections()[uuid]; up {
+		if err := n.obj(nmPath).Call(nmIface+".DeactivateConnection", 0, ac).Err; err != nil {
+			return uuid, err
+		}
+	}
+	return uuid, nil
 }
 
 // --- typed property reads ---
@@ -1005,6 +1158,15 @@ func (n *networkState) pathProp(o dbus.BusObject, name string) dbus.ObjectPath {
 	return p
 }
 
+func (n *networkState) pathSliceProp(o dbus.BusObject, name string) []dbus.ObjectPath {
+	v, err := o.GetProperty(name)
+	if err != nil {
+		return nil
+	}
+	paths, _ := v.Value().([]dbus.ObjectPath)
+	return paths
+}
+
 // --- pure helpers (unit-tested) ---
 
 // nmActiveActivating is NMActiveConnectionState ACTIVATING.
@@ -1021,12 +1183,13 @@ func vpnProfileFrames(saved []savedConn, live map[string]vpnLive) []map[string]a
 		}
 		l, isActive := live[c.uuid]
 		out = append(out, map[string]any{
-			"uuid":       c.uuid,
-			"name":       c.id,
-			"service":    vpnServiceName(c.vpnService),
-			"active":     isActive,
-			"connecting": isActive && l.connecting,
-			"ip4":        l.ip4,
+			"uuid":        c.uuid,
+			"name":        c.id,
+			"service":     vpnServiceName(c.vpnService),
+			"active":      isActive,
+			"connecting":  isActive && l.connecting,
+			"ip4":         l.ip4,
+			"autoconnect": c.autoconnect,
 		})
 	}
 	return out
@@ -1219,23 +1382,33 @@ func apFrame(a *apInfo) map[string]any {
 	}
 }
 
-// ssidSaved reports whether a stored wifi profile matches ssid.
-func ssidSaved(ssid string, saved []savedConn) bool {
+// wifiProfiles returns every stored wifi profile that joins ssid. Profiles are
+// matched by the SSID they join, never by name: NetworkManager names a second
+// profile for an SSID "<ssid> 1", and an imported one can carry any name. A
+// hotspot (mode ap) that shares the name is not a saved network.
+func wifiProfiles(ssid string, saved []savedConn) []savedConn {
+	var out []savedConn
 	for _, c := range saved {
-		if c.typ == "802-11-wireless" && c.ssid == ssid {
-			return true
+		if c.typ == "802-11-wireless" && c.ssid == ssid && c.mode != "ap" {
+			out = append(out, c)
 		}
 	}
-	return false
+	return out
 }
 
-// ssidAutoconnect reports the autoconnect state of the stored wifi profile that
-// matches ssid, defaulting to true (NetworkManager's own default) when the
-// profile leaves the key unset. It is meaningful only for a saved network.
+// ssidSaved reports whether a stored wifi profile matches ssid.
+func ssidSaved(ssid string, saved []savedConn) bool {
+	return len(wifiProfiles(ssid, saved)) > 0
+}
+
+// ssidAutoconnect reports whether any stored wifi profile behind ssid
+// autoconnects (one that does still rejoins), defaulting to true
+// (NetworkManager's own default) when a profile leaves the key unset. It is
+// meaningful only for a saved network.
 func ssidAutoconnect(ssid string, saved []savedConn) bool {
-	for _, c := range saved {
-		if c.typ == "802-11-wireless" && c.ssid == ssid {
-			return c.autoconnect
+	for _, c := range wifiProfiles(ssid, saved) {
+		if c.autoconnect {
+			return true
 		}
 	}
 	return false

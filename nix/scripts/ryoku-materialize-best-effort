@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Session-boundary wrapper around ryoku-materialize.
+#
+# A materialization failure must not stop the compositor or the Ryoku user
+# services from starting: the previous generation's configuration (or the
+# compositor's own defaults on a brand-new home) is still a usable desktop,
+# whereas a refused login is not. The failure is never hidden: it is logged at
+# error priority and recorded in a marker file until a later run succeeds.
+set -u
+
+materializer=@materializer@
+coreutils=@coreutils@
+
+state="${XDG_STATE_HOME:-${HOME:-/}/.local/state}/ryoku/nix"
+marker="$state/materialize-failed"
+
+if "$materializer"; then
+  "$coreutils/rm" -f -- "$marker" 2>/dev/null || true
+  exit 0
+fi
+rc=$?
+
+if "$coreutils/mkdir" -p -- "$state" 2>/dev/null; then
+  printf '%s exit=%s\n' "$("$coreutils/date" -Is)" "$rc" >"$marker" 2>/dev/null || true
+fi
+printf '<3>ryoku-materialize failed (exit %s); continuing with the existing configuration. Marker: %s\n' \
+  "$rc" "$marker" >&2
+exit 0

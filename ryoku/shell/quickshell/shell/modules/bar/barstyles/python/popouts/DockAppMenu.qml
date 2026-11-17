@@ -1,3 +1,4 @@
+import shell.services as ShellIcons
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
@@ -151,7 +152,7 @@ PanelWindow {
                 property: "animProgress"
                 from: menuContainer.animProgress > 0.8 ? 0.2 : 0.0
                 to: 1.0
-                duration: 180
+                duration: 150
                 easing.type: Easing.OutBack
                 easing.overshoot: 1.05
             }
@@ -276,7 +277,8 @@ PanelWindow {
                             anchors.verticalCenter: parent.verticalCenter
                             width: dockAppMenuWindow.s(20)
                             height: dockAppMenuWindow.s(20)
-                            source: DockAppMenuController.appIcon ? (DockAppMenuController.appIcon.indexOf("/") !== -1 || DockAppMenuController.appIcon.startsWith("image://") ? DockAppMenuController.appIcon : ("image://icon/" + DockAppMenuController.appIcon)) : ""
+                            source: DockAppMenuController.appIcon && DockAppMenuController.appIcon.startsWith("image://") && !DockAppMenuController.appIcon.startsWith("image://icon/")
+                                ? DockAppMenuController.appIcon : ShellIcons.Icons.path(DockAppMenuController.appIcon, true)
                             sourceSize.width: width
                             sourceSize.height: height
                             fillMode: Image.PreserveAspectFit
@@ -368,10 +370,10 @@ PanelWindow {
                                     Layout.fillHeight: true
                                     clip: true
                                     Behavior on Layout.preferredWidth {
-                                        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                                        NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                                     }
 
-                                    IconButton {
+                                    CloseButton {
                                         x: parent.width - width
                                         width: dockAppMenuWindow.s(30)
                                         height: dockAppMenuWindow.s(30)
@@ -380,11 +382,10 @@ PanelWindow {
                                         accentColor: ThemeBackend.surface0
                                         bgOpacity: ThemeBackend.elementOpacity
                                         textColor: ThemeBackend.red
-                                        buttonIcon: "󰅖"
                                         iconFontSize: dockAppMenuWindow.s(13)
                                         opacity: rowHover.hovered ? 1.0 : 0.0
                                         Behavior on opacity {
-                                            NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                                            NumberAnimation { duration: 250; easing.type: Easing.OutCubic }
                                         }
                                         onClicked: {
                                             if (modelData && modelData.id !== undefined) {

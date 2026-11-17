@@ -51,6 +51,53 @@ set -e
 }
 grep -Fq 'installation disk identity changed before erase' <<< "$out"
 
+# The size floor is enforced on the real disk before anything is erased. A
+# disk that cannot hold the fresh closure would otherwise be wiped and then
+# run out of space in the middle of nixos-install.
+eval "$(grep -E '^min_install_disk_(gib|bytes)=' "$backend")"
+eval "$(extract_function validate_install_disk)"
+# shellcheck disable=SC2034 # Read inside the dynamically extracted function.
+dry_run=0
+readlink() { printf '%s\n' "${@: -1}"; }
+detect_live_disk() { :; }
+# validate_install_disk requires a block device; the sandbox has none.
+function [ {
+  if [[ $1 == -b && $2 == /dev/fake* ]]; then return 0; fi
+  builtin [ "$@"
+}
+FAKE_SIZE=0
+lsblk() {
+  case "$*" in
+    *TYPE*) printf 'disk\n' ;;
+    *RO*) printf '0\n' ;;
+    *SIZE*) printf '%s\n' "$FAKE_SIZE" ;;
+    *MOUNTPOINTS*) : ;;
+    *) return 1 ;;
+  esac
+}
+gib=$((1024 * 1024 * 1024))
+
+for small in 16 32 39; do
+  set +e
+  out="$( { FAKE_SIZE=$((small * gib)); validate_install_disk /dev/fakedisk; } 2>&1 )"
+  rc=$?
+  set -e
+  [ "$rc" -eq 42 ] || {
+    printf 'a %s GiB disk was accepted for installation (rc=%s): %s\n' "$small" "$rc" "$out" >&2
+    exit 1
+  }
+  grep -Fq 'GiB minimum' <<< "$out"
+done
+
+FAKE_SIZE=$((40 * gib))
+install_disk=""
+validate_install_disk /dev/fakedisk
+[ "$install_disk" = /dev/fakedisk ] || {
+  printf 'a 40 GiB disk was refused: %s\n' "$install_disk" >&2
+  exit 1
+}
+unset -f '['
+
 python3 - "$backend" <<'PYCHECK'
 from pathlib import Path
 import sys

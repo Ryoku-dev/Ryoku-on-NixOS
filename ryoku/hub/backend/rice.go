@@ -962,7 +962,7 @@ func restoreRice(slot string) error {
 		return fmt.Errorf("no backup to restore at %q", slot)
 	}
 	if b, err := os.ReadFile(filepath.Join(dir, "wallpaper.path")); err == nil && isFile(strings.TrimSpace(string(b))) {
-		_ = riceRun("ryogami", "wallpaper", "set", strings.TrimSpace(string(b)))
+		_ = riceRun("ryogami", "wallpaper", "set", "--screen", "*", strings.TrimSpace(string(b)))
 	} else {
 		_ = riceRun("ryogami", "wallpaper", "repaint")
 	}
@@ -1199,7 +1199,7 @@ func applyRice(slug string, layers []string) error {
 		dst := filepath.Join(destDir, r.Slug+filepath.Ext(r.Assets.Wallpaper))
 		src := filepath.Join(dir, r.Assets.Wallpaper)
 		if filesIdentical(src, dst) || copyFile(src, dst) == nil {
-			_ = riceRun("ryogami", "wallpaper", "set", dst)
+			_ = riceRun("ryogami", "wallpaper", "set", "--screen", "*", dst)
 		}
 	}
 	// Colour is set AFTER the wallpaper: `wallpaper set` re-derives the palette
@@ -1597,7 +1597,7 @@ func exportReadme(r Rice) string {
 	if len(r.Look["decor"]) > 0 {
 		b.WriteString("  decor-*      the desktop decors' pictures\n")
 	}
-	fmt.Fprintf(&b, "\nDrop this folder into ~/.config/ryoku/rices/ and apply it from\nRyoku Settings > Appearance > Rices, or `ryoku-hub rice apply %s`.\n", r.Slug)
+	fmt.Fprintf(&b, "\nDrop this folder into ~/.config/ryoku/rices/ and apply it from\nthe Ryogami picker's Rices tab, or `ryoku-hub rice apply %s`.\n", r.Slug)
 	return b.String()
 }
 
@@ -1762,14 +1762,7 @@ func runRice(args []string) error {
 	case "list":
 		return printJSON(listRiceEntries())
 	case "capture":
-		if len(args) < 2 {
-			return fmt.Errorf("rice capture needs a name")
-		}
-		r, err := captureRice(args[1], args[2:])
-		if err != nil {
-			return err
-		}
-		return printJSON(r)
+		return runRiceCapture(args[1:])
 	case "apply":
 		if len(args) < 2 {
 			return fmt.Errorf("rice apply needs a slug")

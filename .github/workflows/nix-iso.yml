@@ -12,10 +12,25 @@ on:
       - 'nix/installer/**'
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
-      - 'nix/modules/ryoku.nix'
+      - 'nix/modules/**'
+      - 'nix/tests/display-manager.nix'
+      - 'nix/tests/firstboot-*'
+      - 'nix/tests/test-firstboot-*'
+      - 'ryoku/lockscreen/sddm/ryoku-greeter-guard'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
+      - 'nix/tests/materialize-session.nix'
+      - 'nix/tests/test-materialize-session.sh'
+      - 'nix/scripts/ryoku-materialize-*'
+      - 'nix/apps/ryoku-materialize.nix'
+      - 'nix/tests/test-sddm-theme-apply.sh'
+      - 'nix/scripts/ryoku-sddm-theme-apply'
+      - 'nix/scripts/ryoku-nix-update'
+      - 'nix/tests/test-nix-update-*'
+      - 'nix/tests/test-ryoku-install-edit.py'
+      - 'nix/tests/test-ci-check-coverage.py'
+      - 'nix/sync/run-checks'
       - '.github/workflows/nix-iso.yml'
   pull_request:
     paths:
@@ -25,10 +40,25 @@ on:
       - 'nix/installer/**'
       - 'nix/iso/**'
       - 'nix/iso-configs/**'
-      - 'nix/modules/ryoku.nix'
+      - 'nix/modules/**'
+      - 'nix/tests/display-manager.nix'
+      - 'nix/tests/firstboot-*'
+      - 'nix/tests/test-firstboot-*'
+      - 'ryoku/lockscreen/sddm/ryoku-greeter-guard'
       - 'nix/tests/installer-*'
       - 'nix/tests/test-installer-*'
       - 'nix/tests/test-qylock-pam-materialization.py'
+      - 'nix/tests/materialize-session.nix'
+      - 'nix/tests/test-materialize-session.sh'
+      - 'nix/scripts/ryoku-materialize-*'
+      - 'nix/apps/ryoku-materialize.nix'
+      - 'nix/tests/test-sddm-theme-apply.sh'
+      - 'nix/scripts/ryoku-sddm-theme-apply'
+      - 'nix/scripts/ryoku-nix-update'
+      - 'nix/tests/test-nix-update-*'
+      - 'nix/tests/test-ryoku-install-edit.py'
+      - 'nix/tests/test-ci-check-coverage.py'
+      - 'nix/sync/run-checks'
       - '.github/workflows/nix-iso.yml'
   workflow_dispatch:
 
@@ -61,11 +91,26 @@ jobs:
           nix build --no-link \
             .#checks.x86_64-linux.ryoku-installer-options \
             .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-tui \
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
             .#checks.x86_64-linux.ryoku-installer-iso \
             .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-display-manager \
+            .#checks.x86_64-linux.ryoku-bridge-command-ownership \
             .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-firstboot-session \
+            .#checks.x86_64-linux.ryoku-firstboot-greeter-guard \
+            .#checks.x86_64-linux.ryoku-firstboot-qml-imports \
+            .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-sddm-theme-apply \
+            .#checks.x86_64-linux.ryoku-install-parser \
+            .#checks.x86_64-linux.ryoku-nix-update-lock \
+            .#checks.x86_64-linux.ryoku-nix-update-local-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-activation-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-refresh \
+            .#checks.x86_64-linux.ryoku-nix-update-interrupt \
+            .#checks.x86_64-linux.ryoku-ci-check-coverage \
             .#checks.x86_64-linux.ryoku-iso-configs
 
       - name: Prove ISO derivation evaluates
@@ -73,3 +118,4 @@ jobs:
         run: |
           set -euo pipefail
           nix build --dry-run --no-link .#ryoku-iso
+          nix eval --raw .#nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage.drvPath >/dev/null

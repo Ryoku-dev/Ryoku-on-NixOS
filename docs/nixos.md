@@ -2,7 +2,7 @@
 
 Ryoku on NixOS is the NixOS implementation of the Ryoku desktop.
 
-The desktop experience is shared with Ryoku on Arch: Hyprland, niri or MangoWM, the
+The desktop experience is shared with Ryoku on Arch: Hyprland or niri, the
 Ryoku shell, Hub, Ryostore, theming, launcher, lockscreen, media surfaces and
 the wider Ryoku UI all remain Ryoku. The difference is how the operating system
 underneath is managed.
@@ -10,13 +10,40 @@ underneath is managed.
 On NixOS, Ryoku uses Nix packages, NixOS modules and normal NixOS generations
 instead of Pacman, the AUR, mkinitcpio or an Arch-specific boot stack.
 
+## Optional applications
+
+The Ryoku module installs RyoMarket by default. Use it to install Ryotunes,
+RyoManager, RyoStore, RyoMotion, Rashin and Ryoport when needed. The marketplace
+is pinned through this flake's lock file, with its own package set. Its optional
+applications are not added to the base system.
+
+To keep the desktop without the marketplace, set
+`programs.ryomarket.enable = false;`.
+
+Outside a Ryoku installation, run the marketplace directly:
+
+```sh
+nix run github:Ryoku-dev/ryomarket
+```
+
+Applications can also be installed directly, for example:
+
+```sh
+nix run github:Ryoku-dev/ryomarket#install-ryotunes
+```
+
+Replace `ryotunes` with `ryomanager`, `ryostore`, `ryomotion`, `rashin` or
+`ryoport`. The managed installer provides desktop entries and commands and keeps
+application data when removed. VM permissions, GPU passthrough and application
+accounts remain explicit configuration choices.
+
 ## Requirements
 
 Ryoku on NixOS currently targets:
 
 - `x86_64-linux`
 - an existing flake-based NixOS installation
-- Hyprland, niri or MangoWM on Wayland
+- Hyprland or niri on Wayland
 - a reasonably recent NixOS package set
 
 The installer integrates Ryoku into the system you already have. It does **not**
@@ -60,7 +87,7 @@ Useful installer options:
 ```text
 --flake PATH[#HOST]   NixOS flake to configure
 --source REF          Ryoku flake reference
---compositor NAME     Initial compositor: hyprland, niri, or mango
+--compositor NAME     Initial compositor: hyprland or niri
 --browser NAME        Browser: chromium or firefox
 --dry-run             Show proposed changes without writing them
 -y, --yes             Skip confirmation
@@ -165,7 +192,7 @@ The NixOS module provides the machine-facing integration needed by the Ryoku
 desktop, including:
 
 - Ryoku packages and runtime dependencies
-- the Ryoku Hyprland, niri and MangoWM provider/session package sets
+- the Ryoku Hyprland and niri provider/session package sets
 - PipeWire and WirePlumber integration
 - NetworkManager and Bluetooth integration
 - polkit and keyring support
@@ -182,7 +209,7 @@ Both compositor sessions and their Ryoku providers come from Ryoku's locked
 package set. ABI-sensitive Hyprland plugins therefore remain compatible with
 the Hyprland build in the same generation.
 
-At the display manager, choose **Hyprland**, **niri** or **MangoWM**. All three
+At the display manager, choose **Hyprland** or **niri**. Both
 sessions use the same Ryoku shell and neutral desktop settings. The installer's
 `defaultCompositor` choice only preselects the initial session; every provider
 remains deployed, so Hub switching never needs a mutable package transaction.
@@ -231,6 +258,52 @@ Do not add a second manual Ryoku shell `exec-once` when the NixOS module already
 manages `ryoku-shell.service`.
 
 ## Updating
+
+### Binary cache
+
+Ryoku enables `https://ryotunes.cachix.org` alongside the host's existing
+substituters. Despite its name, this cache is also the publication target for
+the Ryoku NixOS default system closure; enabling it does not install Ryotunes.
+The public signing key is
+`ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs=`.
+Set `programs.ryoku.binaryCache.enable = false;` to opt out of the module's
+cache settings.
+
+The installer supplies the cache for its first system build, before the new
+generation's `nix.settings` are active. On an existing installation whose
+daemon does not trust this cache yet, preview with temporary command options:
+
+```bash
+sudo nix build /etc/nixos#nixosConfigurations.my-host.config.system.build.toplevel \
+  --dry-run --no-write-lock-file --max-jobs 0 --builders '' \
+  --option extra-substituters https://ryotunes.cachix.org \
+  --option extra-trusted-public-keys 'ryotunes.cachix.org-1:QNocajCsVm/IAMb8LPOWJi72XwqiexW9ec0UqeXLpGs='
+```
+
+Replace `my-host` with the host's flake output name. These flags affect this
+command only. An untrusted user's extra substituters/keys may be ignored by
+the daemon. `--dry-run` can still need source inputs during evaluation;
+`--max-jobs 0 --builders ''` prevents local and remote compilation.
+
+Substitution requires the exact derivation to have been published. The cache
+workflow needs `CACHIX_AUTH_TOKEN` with write access to `ryotunes`, builds the
+default system after checks pass, and uploads it. A pending/failed workflow,
+an unpublished local change, or a different package variant can still require
+a build. Blobs, Ryogami and its Livewall/Palette Bridge dependencies hash their
+own source trees so unrelated checkout changes do not invalidate these native
+packages. Package sources also exclude the root `.git` metadata and the
+installer's `nix/apps/__pycache__` from local `path:` inputs, matching the tree
+layout used by CI. Other packages may still
+depend on the complete checkout and on uncommitted or untracked files in a
+local path input.
+
+Not every entry under “derivations will be built” compiles an application:
+NixOS also generates units, wrappers, symlink trees and Fish completions.
+Some of these explicitly disable substitution. Keep the compositor, plugin and
+Qt package pins together; changing versions or removing runtime patches merely
+to find a cached output can break the desktop.
+
+### Updating the generation
 
 Use the normal Ryoku command:
 

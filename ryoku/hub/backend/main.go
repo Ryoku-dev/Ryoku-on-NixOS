@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 )
@@ -145,6 +146,14 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
 			os.Exit(1)
 		}
+	case "wifi":
+		if err := runWifi(args[1:], os.Stdin); err != nil {
+			fmt.Fprintln(os.Stderr, "ryoku-hub:", err)
+			if errors.Is(err, errDaemonDown) || errors.Is(err, errJoinNotRun) {
+				os.Exit(wifiExitDaemonDown)
+			}
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -194,6 +203,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-hub desktop plugins remove <id>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub rashin status|on|off")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub phone status|on|off|plan-enable|plan-disable|devices|pair|unpair")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub wifi connect <ssid>   (passphrase on stdin)")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub wm list")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub wm preview <name>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub outputs [list]")
@@ -221,6 +231,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  ryoku-hub palette-bridge status|install|service|integration|doctor [<source>]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub share status")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub rice list|preflight|capture|apply|restore|save|fork|delete|import|publish|setwall|files|export")
+	fmt.Fprintln(os.Stderr, "  ryoku-hub rice capture [--force] <name> [all|layer ...]")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch get|preview <json>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch save <json>|effective <path>|palette <fixed|wallpaper>")
 	fmt.Fprintln(os.Stderr, "  ryoku-hub fastfetch import-logo <path>")

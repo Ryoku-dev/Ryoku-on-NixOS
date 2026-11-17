@@ -18,7 +18,6 @@ import (
 const (
 	ProviderHyprland = "hyprland"
 	ProviderNiri     = "niri"
-	ProviderMango    = "mango"
 )
 
 // RetiredCompositorArtifacts names the state a removed provider left on
@@ -33,9 +32,8 @@ type RetiredCompositorArtifacts struct {
 }
 
 func RetiredCompositor() RetiredCompositorArtifacts {
-	// NixOS keeps MangoWM as a supported third provider. Upstream Arch retired
-	// it, but there is no retired compositor to migrate on this port. Keep the
-	// API so shared doctor/updater code stays in sync with upstream.
+	// There is no retired compositor to migrate on this port. Keep the API so
+	// shared doctor/updater code stays in sync with upstream.
 	return RetiredCompositorArtifacts{}
 }
 
@@ -75,8 +73,6 @@ var envProviders = []struct {
 	{"HYPRLAND_INSTANCE_SIGNATURE", ProviderHyprland, hyprlandSockets},
 	// niri exports the socket path itself.
 	{"NIRI_SOCKET", ProviderNiri, func(h string) []string { return []string{h} }},
-	// Mango exports its IPC socket path directly.
-	{"MANGO_INSTANCE_SIGNATURE", ProviderMango, func(h string) []string { return []string{h} }},
 }
 
 // SessionHandles names the environment variables a compositor session carries
@@ -143,7 +139,6 @@ func handleAlive(sockets []string) bool {
 var configDirs = map[string]string{
 	ProviderHyprland: "hypr",
 	ProviderNiri:     "niri",
-	ProviderMango:    "mango",
 }
 
 func ConfigDir(name string) string { return configDirs[name] }
@@ -169,7 +164,6 @@ func LeafScriptsDir(name string) string {
 var configEntries = map[string]string{
 	ProviderHyprland: "hyprland.lua",
 	ProviderNiri:     "config.kdl",
-	ProviderMango:    "config.conf",
 }
 
 // ConfigEntry returns the entry point of a provider's config tree as a path
@@ -188,7 +182,6 @@ func ConfigEntry(name string) string {
 // write has no effect and the installer skips it.
 var gpuPinFile = map[string]string{
 	ProviderHyprland: "gpu.lua",
-	ProviderMango:    "gpu.conf",
 }
 
 // GpuPinFile returns a provider's render-pin file inside its config dir, or
@@ -213,8 +206,7 @@ var configSeeds = map[string][]string{
 	// monitors_user.kdl by name and a missing include is a hard config error,
 	// so the file has to exist from first boot. Being a seed is also what stops
 	// an update re-laying it over a user's edits.
-	ProviderNiri:  {"monitors.kdl", "gpu.kdl", "keyboard.kdl", "user.kdl", "monitors_user.kdl"},
-	ProviderMango: {"monitors.conf", "gpu.conf", "keyboard.conf", "user.conf", "monitors_user.conf"},
+	ProviderNiri: {"monitors.kdl", "gpu.kdl", "keyboard.kdl", "user.kdl", "monitors_user.kdl"},
 }
 
 // ConfigSeeds returns the seeded, machine-owned files for a provider, as paths
@@ -256,7 +248,6 @@ func ConfigUserOwned(name string) []string {
 var configFiles = map[string][]string{
 	ProviderHyprland: {"hypr/user.lua", "hypr/monitors_user.lua", "hypr/modules"},
 	ProviderNiri:     {"niri/user.kdl", "niri/monitors_user.kdl"},
-	ProviderMango:    {"mango/user.conf", "mango/monitors_user.conf"},
 }
 
 // generatedConfig are the files a provider's apply authors from the store, as
@@ -266,7 +257,6 @@ var configFiles = map[string][]string{
 var generatedConfig = map[string][]string{
 	ProviderHyprland: {"hypr/settings.lua", "hypr/settings_window.lua", "hypr/rebinds.lua", "ryoku/user_edits/hypr/settings.lua", "ryoku/user_edits/hypr/settings_window.lua", "ryoku/user_edits/hypr/rebinds.lua"},
 	ProviderNiri:     {"niri/settings.kdl", "niri/rebinds.kdl", "ryoku/user_edits/niri/settings.kdl", "ryoku/user_edits/niri/rebinds.kdl"},
-	ProviderMango:    {"mango/settings.conf", "mango/rebinds.conf", "ryoku/user_edits/mango/settings.conf", "ryoku/user_edits/mango/rebinds.conf"},
 }
 
 // ConfigFiles are a provider's user-editable config paths (the hand-edit escape
@@ -332,7 +322,7 @@ func ResetPaths(name string) []string {
 // Providers is stable order, so generated config and installer prompts do not
 // reshuffle between runs.
 func Providers() []string {
-	return []string{ProviderHyprland, ProviderNiri, ProviderMango}
+	return []string{ProviderHyprland, ProviderNiri}
 }
 
 // compositorBins is the executable each provider's session runs. Named in the
@@ -341,7 +331,6 @@ func Providers() []string {
 var compositorBins = map[string]string{
 	ProviderHyprland: "Hyprland",
 	ProviderNiri:     "niri",
-	ProviderMango:    "mango",
 }
 
 // VariantPackage returns the package that owns a known provider's Ryoku

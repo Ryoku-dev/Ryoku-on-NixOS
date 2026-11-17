@@ -29,6 +29,7 @@ Item {
     property bool loading: true
     property bool loadFailed: false
     property string pendingSlug: ""   // "" idle, else the slug being applied
+    property bool greeterPending: false   // lock already switched, sign-in screen awaits the admin prompt
     property string error: ""
     // "none installed" is a valid empty result; loadFailed is a read failure.
     // Kept apart so the page shows a Store nudge for the first and a retry for
@@ -92,6 +93,7 @@ Item {
 
     // ── fingerprint unlock state (fprintd, live; no root writes) ────────────
     property bool ffpEnabled: true            // ~/.config/qylock/fingerprint toggle
+    property bool aretryOn: false             // $XDG_CONFIG_HOME/qylock/auth-retry toggle
     property bool fdaemon: false              // fprintd service reachable
     property bool fready: false               // a device is present
     property string fdevice: ""               // D-Bus object path
@@ -175,6 +177,8 @@ Item {
     property bool skLoginOn: false
     property bool skLockOn: false
     property bool skLockSupported: false
+    property string skLockReason: ""
+    property bool skLockPin: false
     property string skAuthMode: "either"
     property bool skTouchRequired: true
     property bool skPinVerification: false
@@ -193,6 +197,15 @@ Item {
         if (pg.skUserVerification)
             parts.push(I18n.tr("user verification required"));
         return parts.join("  \u00b7  ");
+    }
+
+    // Says what the lock will ask for, since it follows the shared key policy.
+    readonly property string skLockLine: {
+        if (!pg.skLockSupported)
+            return I18n.tr("Unavailable: %1").arg(pg.skLockReason);
+        if (pg.skLockPin)
+            return I18n.tr("Use your security key on the lock screen  \u00b7  asks for %1. The PIN needs a lock skin that shows key prompts, such as Orbital").arg(pg.skTouchRequired ? I18n.tr("PIN, then touch") : I18n.tr("PIN"));
+        return I18n.tr("Use your security key on the lock screen  \u00b7  asks for %1 (follows the behavior below)").arg(pg.skTouchRequired ? I18n.tr("touch") : I18n.tr("key present"));
     }
 
     readonly property string skStatusLine: {
@@ -253,7 +266,7 @@ Item {
 
     property bool settOpen: false
 
-    Component.onCompleted: { pg.reload(); pg.kreload(); pg.freload(); pg.fpamReload(); pg.skreload(); }
+    Component.onCompleted: { pg.reload(); pg.kreload(); pg.freload(); pg.fpamReload(); pg.skreload(); aretryReadProc.running = true; }
 
     function kreload() {
         kstatusProc.running = true;
@@ -401,6 +414,15 @@ Item {
             "mkdir -p \"$HOME/.config/qylock\"; printf '%s\\n' " + (v ? "on" : "off") + " > \"$HOME/.config/qylock/fingerprint\""
         ];
         fwriteProc.running = true;
+    }
+    function aretryToggle(v) {
+        pg.aretryOn = v;
+        aretryWriteProc.command = [
+            "bash", "-c",
+            "d=\"${XDG_CONFIG_HOME:-$HOME/.config}/qylock\"; mkdir -p \"$d\" && printf '%s\\n' \"$1\" > \"$d/auth-retry\"",
+            "qylock-auth-retry", v ? "on" : "off"
+        ];
+        aretryWriteProc.running = true;
     }
     function fparseNames(text) {
         try {
@@ -630,11 +652,20 @@ Item {
     }
     Process {
         id: actProc
+        stdout: SplitParser {
+            onRead: line => {
+                if (line.trim() === "session-applied" && pg.pendingSlug !== "") {
+                    pg.active = pg.pendingSlug;
+                    pg.greeterPending = true;
+                }
+            }
+        }
         stderr: StdioCollector { id: actErr }
         onExited: code => {
             if (code !== 0)
                 pg.error = I18n.tr("Couldn't switch skin: %1").arg(actErr.text.trim() || ("exit " + code));
             pg.pendingSlug = "";
+            pg.greeterPending = false;
             pg.reload();
         }
     }
@@ -710,6 +741,8 @@ Item {
                     pg.skLoginOn = o.login === true;
                     pg.skLockOn = o.lock === true;
                     pg.skLockSupported = o.lockSupported === true;
+                    pg.skLockReason = o.lockReason || "";
+                    pg.skLockPin = o.lockPin === true;
                     pg.skAuthMode = o.authMode || "either";
                     pg.skTouchRequired = o.touchRequired !== false;
                     pg.skPinVerification = o.pinVerification === true;
@@ -790,6 +823,16 @@ Item {
     Process {
         id: fwriteProc
         onExited: () => { pg.freload(); }
+    }
+    Process {
+        id: aretryReadProc
+        command: ["bash", "-c", "f=\"${XDG_CONFIG_HOME:-$HOME/.config}/qylock/auth-retry\"; [[ -r $f && -f $f ]] && head -c 64 -- \"$f\""]
+        stdout: StdioCollector { id: aretryReadOut }
+        onExited: () => { pg.aretryOn = aretryReadOut.text.trim() === "on"; }
+    }
+    Process {
+        id: aretryWriteProc
+        onExited: () => { aretryReadProc.running = true; }
     }
     Process {
         id: fnamesReadProc
@@ -1025,6 +1068,13 @@ Item {
             text: pg.error
             color: Tokens.ink; font.family: Tokens.ui
             font.pixelSize: Tokens.fSmall; font.weight: Font.Medium; wrapMode: Text.WordWrap
+        }
+        Text {
+            width: Math.min(parent.width, 720)
+            visible: pg.greeterPending
+            text: I18n.tr("Your lock screen has switched. Enter your password to reskin the sign-in screen too.")
+            color: Tokens.inkMuted; font.family: Tokens.ui
+            font.pixelSize: Tokens.fSmall; wrapMode: Text.WordWrap
         }
     }
 
@@ -1508,6 +1558,33 @@ Item {
                                     onToggled: (v) => pg.sktoggle("login", v)
                                 }
                             }
+
+                            Item {
+                                width: parent.width
+                                height: Math.max(skLockCol.height, skLockSw.implicitHeight)
+                                visible: pg.skSupported
+                                Column {
+                                    id: skLockCol
+                                    anchors { left: parent.left; right: skLockSw.left; rightMargin: Tokens.s4; verticalCenter: parent.verticalCenter }
+                                    spacing: 2
+                                    Text { text: I18n.tr("Lock screen"); color: Tokens.ink; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall }
+                                    Text {
+                                        width: parent.width
+                                        text: pg.skLockLine
+                                        color: Tokens.inkDim; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                                Sw {
+                                    id: skLockSw
+                                    anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                    enabled: pg.skLockSupported
+                                    opacity: !enabled || (pg.skPending === "toggle" && pg.skPendingTarget === "lock") ? 0.4 : 1
+                                    Behavior on opacity { NumberAnimation { duration: Tokens.snap } }
+                                    on: pg.skLockOn
+                                    onToggled: (v) => pg.sktoggle("lock", v)
+                                }
+                            }
                         }
 
                         Rectangle { width: parent.width; height: Tokens.border; color: Tokens.lineSoft }
@@ -1621,9 +1698,44 @@ Item {
                         Text {
                             width: parent.width
                             visible: pg.skSupported
-                            text: I18n.tr("Lock screen security-key unlock is not wired yet. This version handles enrollment plus sudo, admin prompts, and the sign-in screen.")
+                            text: I18n.tr("The security key covers sudo, admin prompts, the sign-in screen and the lock screen. On the lock screen it works beside your password, which always stays available.")
                             color: Tokens.inkMuted; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
                             wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
+                // ── Password prompt section ──
+                Column {
+                    width: parent.width
+                    spacing: Tokens.s2
+
+                    Rectangle { width: parent.width; height: Tokens.border; color: Tokens.line }
+
+                    Text { text: I18n.tr("Password prompt"); color: Tokens.ink; font.family: Tokens.ui; font.pixelSize: Tokens.fMicro; font.weight: Font.Medium; font.capitalization: Font.AllUppercase; font.letterSpacing: Tokens.trackMark }
+
+                    Item {
+                        width: parent.width
+                        height: Math.max(aretryCol.height, aretrySw.implicitHeight)
+
+                        Column {
+                            id: aretryCol
+                            anchors { left: parent.left; right: aretrySw.left; rightMargin: Tokens.s4; verticalCenter: parent.verticalCenter }
+                            spacing: 2
+                            Text { text: I18n.tr("Retry a waiting password prompt"); color: Tokens.ink; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall }
+                            Text {
+                                width: parent.width
+                                text: pg.aretryOn ? I18n.tr("An empty Enter, a click or moving the mouse restarts a prompt that is stuck waiting. Applies from the next lock")
+                                                  : I18n.tr("Off: the lock keeps the prompt exactly as the sign-in stack opened it")
+                                color: Tokens.inkDim; font.family: Tokens.ui; font.pixelSize: Tokens.fSmall
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                        Sw {
+                            id: aretrySw
+                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            on: pg.aretryOn
+                            onToggled: (v) => pg.aretryToggle(v)
                         }
                     }
                 }
@@ -1971,7 +2083,7 @@ Item {
                             skin: modelData
                             ordinal: modelData.ordinal || 0
                             active: modelData.slug === pg.active
-                            busy: pg.pendingSlug === modelData.slug
+                            busy: pg.pendingSlug === modelData.slug && !pg.greeterPending
                             onApplied: pg.select(modelData)
                             onPreviewed: pg.preview(modelData.slug)
                         }

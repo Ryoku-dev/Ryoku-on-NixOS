@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +89,71 @@ func TestPreferredDevice(t *testing.T) {
 		if got := preferredDevice(c.devs); got != c.want {
 			t.Errorf("%s: preferredDevice = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+func TestSummarizePrimaryConnection(t *testing.T) {
+	cases := []struct {
+		name         string
+		connectivity uint32
+		devices      []primaryDevice
+		want         networkConnection
+	}{
+		{
+			name:         "USB tether",
+			connectivity: nmConnectivityFull,
+			devices:      []primaryDevice{{typ: nmDeviceEthernet, state: 100}},
+			want:         networkConnection{Kind: "ethernet", Connectivity: "full", Online: true},
+		},
+		{
+			name:         "phone modem tether",
+			connectivity: nmConnectivityFull,
+			devices:      []primaryDevice{{typ: 8, state: 100}},
+			want:         networkConnection{Kind: "ethernet", Connectivity: "full", Online: true},
+		},
+		{
+			name:         "wired",
+			connectivity: nmConnectivityFull,
+			devices:      []primaryDevice{{typ: nmDeviceEthernet, state: 100}},
+			want:         networkConnection{Kind: "ethernet", Connectivity: "full", Online: true},
+		},
+		{
+			name:         "wifi",
+			connectivity: nmConnectivityFull,
+			devices:      []primaryDevice{{typ: nmDeviceWifi, state: 100}},
+			want:         networkConnection{Kind: "wifi", Connectivity: "full", Online: true},
+		},
+		{
+			name:         "VPN over wifi",
+			connectivity: nmConnectivityFull,
+			devices:      []primaryDevice{{typ: nmDeviceWifi, state: 100}},
+			want:         networkConnection{Kind: "wifi", Connectivity: "full", Online: true},
+		},
+		{
+			name:         "no connection",
+			connectivity: nmConnectivityNone,
+			want:         networkConnection{Connectivity: "none"},
+		},
+		{
+			name:         "full without connected primary device",
+			connectivity: nmConnectivityFull,
+			devices:      []primaryDevice{{typ: nmDeviceEthernet, state: 20}},
+			want:         networkConnection{Connectivity: "full"},
+		},
+		{
+			name:         "portal",
+			connectivity: nmConnectivityPortal,
+			devices:      []primaryDevice{{typ: nmDeviceWifi, state: 100}},
+			want:         networkConnection{Connectivity: "portal"},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := summarizePrimaryConnection(c.connectivity, c.devices); got != c.want {
+				t.Fatalf("summarizePrimaryConnection() = %#v, want %#v", got, c.want)
+			}
+		})
 	}
 }
 
@@ -173,6 +240,33 @@ func TestBandForFrequency(t *testing.T) {
 	for _, c := range cases {
 		if got := bandForFrequency(c.mhz); got != c.want {
 			t.Errorf("bandForFrequency(%d) = %q, want %q", c.mhz, got, c.want)
+		}
+	}
+}
+
+// activationOutcome settles a join from one State poll. A failed activation
+// vanishes from the bus, so a failed read is a failure, not "still activating".
+func TestActivationOutcome(t *testing.T) {
+	gone := errors.New("no such object")
+	cases := []struct {
+		name    string
+		state   uint32
+		readErr error
+		done    bool
+		wantErr error
+	}{
+		{"activating keeps waiting", 1, nil, false, nil},
+		{"unknown keeps waiting", 0, nil, false, nil},
+		{"activated succeeds", 2, nil, true, nil},
+		{"deactivating keeps waiting", 3, nil, false, nil},
+		{"deactivated fails", 4, nil, true, errActivationFailed},
+		{"vanished object fails", 0, gone, true, errActivationFailed},
+	}
+	for _, c := range cases {
+		done, err := activationOutcome(c.state, c.readErr)
+		if done != c.done || !errors.Is(err, c.wantErr) || (c.wantErr == nil && err != nil) {
+			t.Errorf("%s: activationOutcome(%d, %v) = (%v, %v), want (%v, %v)",
+				c.name, c.state, c.readErr, done, err, c.done, c.wantErr)
 		}
 	}
 }
@@ -576,5 +670,52 @@ func TestLiveNetworkFrame(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no network frame published")
+	}
+}
+
+// wifiProfiles returns every stored profile that joins an SSID, whatever its
+// name ("<ssid> 1", an imported one), and leaves out a hotspot that shares the
+// SSID, other SSIDs and other connection types.
+func TestWifiProfiles(t *testing.T) {
+	saved := []savedConn{
+		{path: "/a", typ: "802-11-wireless", id: "home", ssid: "home"},
+		{path: "/b", typ: "802-11-wireless", id: "home 1", ssid: "home"},
+		{path: "/c", typ: "802-11-wireless", id: "Imported", ssid: "home", mode: "infrastructure"},
+		{path: "/d", typ: "802-11-wireless", id: "home hotspot", ssid: "home", mode: "ap"},
+		{path: "/e", typ: "802-11-wireless", id: "cafe", ssid: "cafe"},
+		{path: "/f", typ: "802-3-ethernet", id: "home", ssid: "home"},
+	}
+	got := wifiProfiles("home", saved)
+	var paths []string
+	for _, c := range got {
+		paths = append(paths, string(c.path))
+	}
+	if strings.Join(paths, " ") != "/a /b /c" {
+		t.Fatalf("wifiProfiles(home) = %v, want /a /b /c", paths)
+	}
+	if len(wifiProfiles("unknown", saved)) != 0 {
+		t.Fatal("an unknown SSID matched a profile")
+	}
+	if ssidSaved("guest", []savedConn{{typ: "802-11-wireless", ssid: "guest", mode: "ap"}}) {
+		t.Fatal("a hotspot alone read as a saved network")
+	}
+}
+
+// With duplicate profiles, autoconnect reads on while any of them is on, since
+// that one still rejoins, and off only once all are off.
+func TestSsidAutoconnectAcrossDuplicates(t *testing.T) {
+	mixed := []savedConn{
+		{typ: "802-11-wireless", id: "home", ssid: "home", autoconnect: false},
+		{typ: "802-11-wireless", id: "home 1", ssid: "home", autoconnect: true},
+	}
+	if !ssidAutoconnect("home", mixed) {
+		t.Error("one profile still autoconnects, so the network should read on")
+	}
+	off := []savedConn{
+		{typ: "802-11-wireless", id: "home", ssid: "home", autoconnect: false},
+		{typ: "802-11-wireless", id: "home 1", ssid: "home", autoconnect: false},
+	}
+	if ssidAutoconnect("home", off) {
+		t.Error("every profile is off, so the network should read off")
 	}
 }

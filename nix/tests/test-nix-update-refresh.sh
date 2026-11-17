@@ -33,7 +33,20 @@ esac
 exit 1
 SH
 chmod +x "$bin/systemctl"
+export XDG_STATE_HOME="$work/state"
+marker="$XDG_STATE_HOME/ryoku/nix/materialize-failed"
 PATH="$bin:$PATH" refresh_runtime true
+
+# The materialize unit tolerates failure (so login never blocks) and exits 0,
+# leaving a marker. The updater must not report that as a recovered runtime.
+mkdir -p "${marker%/*}"
+printf 'exit=3\n' >"$marker"
+if PATH="$bin:$PATH" refresh_runtime true 2>"$work/marked"; then
+    printf 'expected refresh to fail while the materialization failure marker exists\n' >&2
+    exit 1
+fi
+grep -Fq 'failed to materialize' "$work/marked"
+rm -f "$marker"
 
 printf '#!%s\n' "$bash_bin" >"$bin/systemctl"
 cat >>"$bin/systemctl" <<'SH'

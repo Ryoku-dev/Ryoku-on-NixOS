@@ -32,6 +32,19 @@ func hexToRGB(hex string) (int, int, int) {
 	return 0, 0, 0
 }
 
+// light or dark from the surface luma, for templates that pick a default look
+func paletteMode(pal map[string]string) string {
+	bg := pal["surface"]
+	if bg == "" {
+		bg = pal["background"]
+	}
+	r, g, b := hexToRGB(bg)
+	if 0.299*float64(r)+0.587*float64(g)+0.114*float64(b) >= 127.5 {
+		return "light"
+	}
+	return "dark"
+}
+
 func paletteCarrier(pal map[string]string) map[string]any {
 	c := map[string]any{}
 	put := func(name, hex string) {
@@ -231,6 +244,17 @@ func runMatugenCmd(args []string) error {
 	}
 }
 
+// expandMatugenHome resolves the shipped ~/.config, ~/.cache and ~/.local/share
+// paths against the XDG dirs: matugen expands ~ to $HOME only, so a session that
+// points XDG_CONFIG_HOME elsewhere would otherwise look in the wrong place.
+func expandMatugenHome(toml string) string {
+	return strings.NewReplacer(
+		"~/.config/", configHome()+"/",
+		"~/.cache/", cacheHome()+"/",
+		"~/.local/share/", dataHome()+"/",
+	).Replace(toml)
+}
+
 // renderActiveTemplates generates matugen configs for enabled templates
 func renderActiveTemplates(cfg matugenConfig, pal map[string]string) {
 	matugenDir := filepath.Join(configHome(), "matugen")
@@ -270,12 +294,16 @@ func renderActiveTemplates(cfg matugenConfig, pal map[string]string) {
 	}
 
 	carrierPath := filepath.Join(cacheDir, "matugen-carrier.json")
-	carrier := map[string]any{"colors": paletteCarrier(pal)}
+	carrier := map[string]any{"colors": paletteCarrier(pal), "mode": paletteMode(pal)}
 	if err := atomicWrite(carrierPath, mustJSON(carrier), 0o644); err != nil {
 		return
 	}
 	// Always render core surface
-	runMatugen(filepath.Join(matugenDir, "config.toml"), carrierPath)
+	if core, err := os.ReadFile(filepath.Join(matugenDir, "config.toml")); err == nil {
+		activeCore := filepath.Join(cacheDir, "active-config.toml")
+		_ = os.WriteFile(activeCore, []byte(expandMatugenHome(string(core))), 0o644)
+		runMatugen(activeCore, carrierPath)
+	}
 
 	// Filter apps.toml entries based on cfg.Templates
 	appsTomlPath := filepath.Join(matugenDir, "apps.toml")
@@ -321,7 +349,7 @@ func renderActiveTemplates(cfg matugenConfig, pal map[string]string) {
 	}
 
 	activeAppsToml := filepath.Join(cacheDir, "active-apps.toml")
-	_ = os.WriteFile(activeAppsToml, []byte(strings.Join(activeSections, "\n")), 0o644)
+	_ = os.WriteFile(activeAppsToml, []byte(expandMatugenHome(strings.Join(activeSections, "\n"))), 0o644)
 
 	runMatugen(activeAppsToml, carrierPath)
 }

@@ -5,7 +5,6 @@
 {
   programs.ryoku = {
     enable = true;
-    binaryCache.enable = install.binaryCache;
     defaultCompositor = install.compositor;
     browser = install.browser;
     shell = install.shell;

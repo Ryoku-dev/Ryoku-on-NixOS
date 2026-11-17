@@ -22,6 +22,39 @@ func TestLeafScriptsDir(t *testing.T) {
 	}
 }
 
+func TestSessionGapNixOSWrappedSessions(t *testing.T) {
+    entries := t.TempDir()
+
+    original := sessionEntryDirs
+    t.Cleanup(func() {
+        sessionEntryDirs = original
+    })
+
+    sessionEntryDirs = func() []string {
+        return []string{entries}
+    }
+
+    // NixOS session wrappers contain their compositor in the
+    // Nix closure, so it doesn't need to be in PATH.
+    t.Setenv("PATH", t.TempDir())
+
+    for _, name := range Providers() {
+        path := filepath.Join(entries, "ryoku-"+name+".desktop")
+
+        if err := os.WriteFile(
+            path,
+            []byte("[Desktop Entry]\n"),
+            0o644,
+        ); err != nil {
+            t.Fatal(err)
+        }
+
+        if got := SessionGap(name); got != "" {
+            t.Errorf("%s: SessionGap() = %q, want ready", name, got)
+        }
+    }
+}
+
 // SessionGap is the switch's honesty gate: a checkout box has every provider's
 // binary and config tree, but only a session the greeter can actually boot is
 // switchable. The gap must name the missing half, and a provider with both

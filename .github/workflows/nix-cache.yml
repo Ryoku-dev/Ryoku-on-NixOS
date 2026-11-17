@@ -1,8 +1,8 @@
 name: Nix binary cache
 
-# Every merge into a lane branch changes what installed systems build on their
-# next update. Build the default install's system closure once here and push it
-# to the cache that installed systems and the installer already trust.
+# After the checks pass on a lane branch, build the default install's system
+# closure and push it to the public cache trusted by the NixOS module.
+# CACHIX_AUTH_TOKEN must have write access to the ryotunes cache.
 on:
   push:
     branches:
@@ -41,11 +41,26 @@ jobs:
           nix build --no-link \
             .#checks.x86_64-linux.ryoku-installer-options \
             .#checks.x86_64-linux.ryoku-installer-transaction \
+            .#checks.x86_64-linux.ryoku-installer-tui \
             .#checks.x86_64-linux.ryoku-installer-disk-identity \
             .#checks.x86_64-linux.ryoku-installer-iso \
             .#checks.x86_64-linux.ryoku-installer-wrapper \
+            .#checks.x86_64-linux.ryoku-display-manager \
+            .#checks.x86_64-linux.ryoku-bridge-command-ownership \
             .#checks.x86_64-linux.ryoku-session-bootstrap \
+            .#checks.x86_64-linux.ryoku-firstboot-session \
+            .#checks.x86_64-linux.ryoku-firstboot-greeter-guard \
+            .#checks.x86_64-linux.ryoku-firstboot-qml-imports \
+            .#checks.x86_64-linux.ryoku-materialize-session \
             .#checks.x86_64-linux.ryoku-qylock-pam-materialization \
+            .#checks.x86_64-linux.ryoku-sddm-theme-apply \
+            .#checks.x86_64-linux.ryoku-install-parser \
+            .#checks.x86_64-linux.ryoku-nix-update-lock \
+            .#checks.x86_64-linux.ryoku-nix-update-local-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-activation-rollback \
+            .#checks.x86_64-linux.ryoku-nix-update-refresh \
+            .#checks.x86_64-linux.ryoku-nix-update-interrupt \
+            .#checks.x86_64-linux.ryoku-ci-check-coverage \
             .#checks.x86_64-linux.ryoku-iso-configs
 
   cache:
@@ -58,10 +73,8 @@ jobs:
     steps:
       - name: Check cache configuration
         env:
-          CACHE: ${{ vars.CACHIX_CACHE }}
           TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
-          test -n "$CACHE" || { echo 'Missing repository variable: CACHIX_CACHE' >&2; exit 1; }
           test -n "$TOKEN" || { echo 'Missing repository secret: CACHIX_AUTH_TOKEN' >&2; exit 1; }
 
       - name: Free build disk space
@@ -80,7 +93,7 @@ jobs:
       - name: Configure Cachix
         uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
         with:
-          name: ${{ vars.CACHIX_CACHE }}
+          name: ryotunes
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Build the default install closure

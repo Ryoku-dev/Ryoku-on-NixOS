@@ -4,6 +4,7 @@
   version,
   desktopData,
   paletteBridge,
+  nixosSystemBridge,
 }:
 
 pkgs.stdenv.mkDerivation {
@@ -23,6 +24,13 @@ pkgs.stdenv.mkDerivation {
       --replace-fail \
         '"/usr/share/ryoku/palette-bridge/install-integrations.sh"' \
         '"${paletteBridge}/share/ryoku/palette-bridge/install-integrations.sh"'
+
+    # pkexec hands polkit the PATH-resolved program, which never equals the
+    # store path the NixOS rule grants. Call the bridge by its store path.
+    substituteInPlace internal/host/network.go \
+      --replace-fail \
+        '"ryoku-wifi-backend"' \
+        '"${nixosSystemBridge}/bin/ryoku-wifi-backend"'
   '';
 
   buildPhase = ''

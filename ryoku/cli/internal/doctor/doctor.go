@@ -15,6 +15,7 @@ import (
 	"ryoku-cli/internal/host"
 	"ryoku-cli/internal/sys"
 	"ryoku-cli/internal/updater"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +42,7 @@ import (
 const ryokuIssuesURL = "https://github.com/ryoku-dev/ryoku/issues"
 
 var (
+	doctorReconcilers    = reconcilers
 	doctorPackageManager = func() (host.PackageManager, error) {
 		return host.Default().PackageManager()
 	}
@@ -161,6 +163,7 @@ const (
 	recWouldFix
 	recWarn
 	recFailed
+	recDismissed
 )
 
 func (s recStatus) label() string {
@@ -177,6 +180,8 @@ func (s recStatus) label() string {
 		return "warn"
 	case recFailed:
 		return "fail"
+	case recDismissed:
+		return "dismissed"
 	}
 	return "?"
 }
@@ -255,6 +260,7 @@ func reconcilers() []reconciler {
 			reconciler{i18n.T("limine boot entry"), reconcileLimineBootEntry},
 			reconciler{i18n.T("alongside boot entry"), reconcileAlongsideBootEntry},
 			reconciler{i18n.T("limine UKI boot tree"), reconcileLimineUKITree},
+			reconciler{i18n.T("installer pacman hook masks"), reconcileInstallerPacmanHooks},
 			reconciler{i18n.T("limine kernel boot images"), reconcileLimineKernelImages},
 			reconciler{i18n.T("boot menu dead entries"), reconcileLimineDeadEntries},
 			reconciler{i18n.T("boot partition headroom"), reconcileBootSpace},
@@ -283,6 +289,7 @@ func reconcilers() []reconciler {
 		{i18n.T("stale dev residue"), reconcileDevResidue},
 		{i18n.T("ryostore cache location"), reconcileRyostoreCache},
 		{i18n.T("desktop settings store"), reconcileDesktopStore},
+		{i18n.T("default app aliases"), reconcileDefaultAppAliases},
 		{i18n.T("clickfinger default"), reconcileClickfingerDefault},
 		{i18n.T("retired cursor keys"), reconcileRetiredCursorLeaf},
 		{i18n.T("session target units"), reconcileSessionTarget},
@@ -351,7 +358,7 @@ func reconcilers() []reconciler {
 		{i18n.T("ryotunes"), reconcileRyotunes},
 		{i18n.T("fastfetch OS line"), reconcileFastfetchOSLine},
 		{i18n.T("brand mark image"), reconcileBrandLogo},
-		{i18n.T("decor art"), reconcileRyodecors},
+		{i18n.T("this account's Ryoku files"), reconcileAccountSeed},
 		{i18n.T("Hyprland config integrity"), reconcileHyprlandConfig},
 		{i18n.T("niri config integrity"), reconcileNiriConfig},
 		{i18n.T("window manager plugin builds"), reconcileWmPlugins},
@@ -456,9 +463,18 @@ func runReconcilers(checkOnly bool) []finding {
 	fetchFedoraReleaseStatus := doctorFedoraReleaseStatus
 	doctorFedoraReleaseStatus = sync.OnceValues(fetchFedoraReleaseStatus)
 	defer func() { doctorFedoraReleaseStatus = fetchFedoraReleaseStatus }()
+	saved, err := loadDismissals()
 	var out []finding
+<<<<<<< port (main)
 	for _, r := range platformReconcilers() {
 		out = append(out, finding{name: r.name, res: r.run(checkOnly)})
+=======
+	if err != nil {
+		out = append(out, finding{name: i18n.T("doctor dismissals"), res: failRes("read dismissals: %v", err)})
+	}
+	for _, r := range doctorReconcilers() {
+		out = append(out, finding{name: r.name, res: runWithDismissals(r, checkOnly, saved)})
+>>>>>>> upstream Ryoku 1.1.0 (0bf1174)
 	}
 	return out
 }
@@ -475,7 +491,7 @@ func printFindings(fs []finding, verbose bool) (warns, fails int) {
 		case recFailed:
 			fails++
 		}
-		if !verbose && (f.res.status == recOK || f.res.status == recNote) {
+		if !verbose && (f.res.status == recOK || f.res.status == recNote || f.res.status == recDismissed) {
 			continue
 		}
 		printed++
@@ -487,7 +503,7 @@ func printFindings(fs []finding, verbose bool) (warns, fails int) {
 		if f.res.detail != "" {
 			fmt.Fprintln(w, detailStyle(f.res.status, sys.Wrap(f.res.detail, width, "      ")))
 		}
-		if f.res.remedy != "" && (f.res.status >= recWouldFix || f.res.status == recNote) {
+		if f.res.remedy != "" && (f.res.status == recWouldFix || f.res.status == recWarn || f.res.status == recFailed || f.res.status == recNote) {
 			fmt.Fprintln(w, sys.Brand(sys.Wrap("↳ "+f.res.remedy, width, "      ")))
 		}
 	}
@@ -501,7 +517,7 @@ func statusGlyph(s recStatus) string {
 	switch s {
 	case recOK, recFixed:
 		return sys.Green("✓")
-	case recNote:
+	case recNote, recDismissed:
 		return sys.Dim("·")
 	case recWouldFix:
 		return sys.Amber("›")
@@ -521,11 +537,14 @@ func statusName(f finding) string {
 	if f.res.status == recFixed {
 		name += sys.Dim(" " + i18n.T("(fixed)"))
 	}
+	if f.res.status == recDismissed {
+		name += sys.Dim(" " + i18n.T("(dismissed)"))
+	}
 	return name
 }
 
 func detailStyle(s recStatus, text string) string {
-	if s == recOK || s == recFixed || s == recNote {
+	if s == recOK || s == recFixed || s == recNote || s == recDismissed {
 		return sys.Dim(text)
 	}
 	return text
@@ -533,6 +552,7 @@ func detailStyle(s recStatus, text string) string {
 
 func doctorUsage() {
 	fmt.Print(i18n.Tf("Usage: ryoku doctor [--check] [--verbose] [--report [file]] [--explain]\n\n  (no args)        check, and apply the safe automatic fixes\n  --check, -n      report what is wrong without changing anything\n  --verbose, -v    also list the checks that passed and advisory notes\n  --report [file]  write a shareable diagnostic report for the maintainers\n                   (default: %s)\n  --explain        ask your cloud model (Groq/OpenRouter) to reason over the report\n  --json           emit findings as JSON (read-only; powers the Hub System Check)\n", reportPath("")))
+	fmt.Print(i18n.T("\n  --dismiss <name>  dismiss a current warn or todo by its full check name\n  --restore <name>  restore a dismissed check\n  --dismissed       list saved dismissals (also accepts --json)\n  Dismissals expire when the status, detail or remedy changes beyond whitespace.\n"))
 }
 
 // MigrateShellConfig applies only deterministic shell-store migrations. NixOS
@@ -556,6 +576,7 @@ func MigrateShellConfig() error {
 func Run(args []string) error {
 	checkOnly, wantReport, wantExplain, wantJSON, verboseFlag := false, false, false, false, false
 	reportTo := ""
+	dismissAction, dismissName := "", ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
 		case "--check", "-n", "--dry-run":
@@ -572,12 +593,39 @@ func Run(args []string) error {
 			verboseFlag = true
 		case "--json":
 			wantJSON = true
+		case "--dismiss", "--restore", "--dismissed":
+			if dismissAction != "" {
+				return fmt.Errorf(i18n.T("choose only one dismissal action"))
+			}
+			dismissAction = strings.TrimPrefix(a, "--")
+			if a == "--dismissed" {
+				dismissAction = "list"
+			} else {
+				if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") || strings.TrimSpace(args[i+1]) == "" {
+					return fmt.Errorf(i18n.T("%s requires a check name"), a)
+				}
+				i++
+				dismissName = args[i]
+			}
 		case "-h", "--help":
 			doctorUsage()
 			return nil
 		default:
 			return fmt.Errorf(i18n.T("unknown argument: %s (try --help)"), a)
 		}
+	}
+	if dismissAction != "" {
+		if checkOnly || wantReport || wantExplain || verboseFlag || wantJSON && dismissAction != "list" {
+			return fmt.Errorf(i18n.T("dismissal actions cannot be combined with diagnostic flags"))
+		}
+		if err := configureDoctorUser(dismissAction == "list"); err != nil {
+			return err
+		}
+		var checks []reconciler
+		if dismissAction == "dismiss" {
+			checks = doctorReconcilers()
+		}
+		return manageDismissals(dismissAction, dismissName, checks, wantJSON)
 	}
 
 	// read-only modes never mutate; showAll also lists ok + advisory notes.
@@ -966,19 +1014,71 @@ func reconcileSnapperAccess(checkOnly bool) recResult {
 	if snapperReadableUnprivileged() {
 		return okRes(i18n.T("snapshots are readable without sudo"))
 	}
+	contents := snapperRootConfigContents()
 	if checkOnly {
+		if _, stale := liveSnapshotReaders(configValue(contents, "ALLOW_USERS")); len(stale) > 0 {
+			return wouldRes(i18n.T("the snapshot config still allows %s, no longer an account on this system, so snapper refuses every command including cleanup"), strings.Join(stale, " ")).
+				withFix(i18n.T("drop the missing accounts from ALLOW_USERS and grant %s read access"), user)
+		}
 		return wouldRes(i18n.T("`ryoku status` cannot count snapshots without a cached sudo credential, so it can read as \"0\" on a machine that has them")).
 			withFix(i18n.T("grant %s read access (snapper ALLOW_USERS + SYNC_ACL)"), user)
 	}
+	// ALLOW_USERS is a list; writing only this user locks every other account out
+	if contents == "" && sys.Sudo("-v") == nil {
+		contents = snapperRootConfigContents()
+	}
+	if contents == "" {
+		return failRes(i18n.T("could not read the snapper root config, so %s was not added beside the accounts it already allows"), user).
+			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=\"<accounts already listed> %s\" SYNC_ACL=yes"), user)
+	}
+	live, stale := liveSnapshotReaders(configValue(contents, "ALLOW_USERS"))
+	if len(stale) > 0 {
+		// snapper cannot load a config naming a missing account, set-config included
+		if err := writeRootFile("/etc/snapper/configs/root", withConfigValue(contents, "ALLOW_USERS", live), "0640"); err != nil {
+			return failRes(i18n.T("dropping %s from the snapshot readers: %v"), strings.Join(stale, " "), err).
+				withFix(i18n.T("edit ALLOW_USERS in /etc/snapper/configs/root to list only existing accounts"))
+		}
+	}
+	allow := allowUsersWith(live, user)
 	if err := sys.Run("sudo", "snapper", "-c", "root", "set-config",
-		"ALLOW_USERS="+user, "SYNC_ACL=yes"); err != nil {
+		"ALLOW_USERS="+allow, "SYNC_ACL=yes"); err != nil {
 		return failRes(i18n.T("granting %s snapshot read access: %v"), user, err).
-			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=%s SYNC_ACL=yes"), user)
+			withFix(i18n.T("sudo snapper -c root set-config ALLOW_USERS=\"%s\" SYNC_ACL=yes"), allow)
 	}
 	if !snapperReadableUnprivileged() {
 		return warnRes(i18n.T("granted %s snapshot access, but an unprivileged read still fails; the ACL sync may land on the next snapshot"), user)
 	}
 	return fixedRes(i18n.T("granted %s read access to snapshots (ALLOW_USERS, SYNC_ACL); `ryoku status` counts them without sudo now"), user)
+}
+
+func allowUsersWith(current, user string) string {
+	users := strings.Fields(current)
+	for _, u := range users {
+		if u == user {
+			return strings.Join(users, " ")
+		}
+	}
+	return strings.Join(append(users, user), " ")
+}
+
+// accountExists asks NSS, so directory accounts count; only getent's
+// "not found" answer marks a name as gone
+var accountExists = func(name string) bool {
+	var exit *exec.ExitError
+	err := exec.Command("getent", "passwd", name).Run()
+	return !errors.As(err, &exit) || exit.ExitCode() != 2
+}
+
+func liveSnapshotReaders(current string) (string, []string) {
+	var live, stale []string
+	for _, name := range strings.Fields(current) {
+		if accountExists(name) {
+			live = append(live, name)
+		} else {
+			stale = append(stale, name)
+		}
+	}
+	return strings.Join(live, " "), stale
 }
 
 // snapperReadableUnprivileged reports whether the current user can list the root
@@ -1826,9 +1926,9 @@ func reconcileDockStore(checkOnly bool) recResult {
 	} else if !os.IsNotExist(stageErr) {
 		return warnRes(i18n.T("could not read %s: %v"), stagePath, stageErr)
 	}
-	if len(stagePins) > 0 {
+	if len(stagePins) > 0 && !dockPinsConfigured(migrated) {
 		var merged bool
-		migrated, merged, err = mergeDockPins(migrated, stagePins)
+		migrated, merged, err = mergeDockPins(migrated, installedDockPins(stagePins))
 		if err != nil {
 			return warnRes(i18n.T("shell.json does not parse (%v); the shell falls back to defaults"), err)
 		}
@@ -2160,6 +2260,9 @@ func jsonValuesEqual(left, right json.RawMessage) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// Stage's schema writes these back on every save; they were never user pins
+var stageDefaultDockPins = []string{"org.kde.dolphin", "kitty"}
+
 func migrateStageDockStore(raw []byte) ([]byte, []string, map[string]json.RawMessage, bool, error) {
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
@@ -2180,13 +2283,15 @@ func migrateStageDockStore(raw []byte) ([]byte, []string, map[string]json.RawMes
 	}
 	var pins []string
 	if oldPins, ok := dock["pinnedApps"]; ok {
-		pins = appendDockPins(nil, oldPins)
-		delete(dock, "pinnedApps")
-		top["dock"], err = encodeObject(dock)
-		if err != nil {
-			return nil, nil, nil, false, err
+		if found := appendDockPins(nil, oldPins); !slices.Equal(found, stageDefaultDockPins) {
+			pins = found
+			delete(dock, "pinnedApps")
+			top["dock"], err = encodeObject(dock)
+			if err != nil {
+				return nil, nil, nil, false, err
+			}
+			changed = true
 		}
-		changed = true
 	}
 
 	legacyShima := map[string]json.RawMessage{}
@@ -2325,6 +2430,40 @@ func mergeDockPins(raw []byte, extra []string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	return append(out, '\n'), true, nil
+}
+
+// once the user edited the shared list, it alone decides what is pinned
+func dockPinsConfigured(raw []byte) bool {
+	var top struct {
+		Dock struct {
+			PinnedConfigured bool `json:"pinnedConfigured"`
+		} `json:"dock"`
+	}
+	return json.Unmarshal(raw, &top) == nil && top.Dock.PinnedConfigured
+}
+
+// matches nautilus to org.gnome.Nautilus.desktop too
+func installedDockPins(pins []string) []string {
+	user, system := applicationDirs()
+	known := map[string]bool{}
+	for _, dir := range append([]string{user}, system...) {
+		entries, _ := os.ReadDir(dir)
+		for _, entry := range entries {
+			id, ok := strings.CutSuffix(strings.ToLower(entry.Name()), ".desktop")
+			if !ok {
+				continue
+			}
+			known[id] = true
+			known[id[strings.LastIndex(id, ".")+1:]] = true
+		}
+	}
+	var out []string
+	for _, pin := range pins {
+		if known[pin] {
+			out = append(out, pin)
+		}
+	}
+	return out
 }
 
 func mustJSON(value any) json.RawMessage {
@@ -3960,64 +4099,6 @@ func reconcileBrandLogo(checkOnly bool) recResult {
 	return fixedRes(i18n.T("cleared the broken brand image (%s); the mark falls back to the text seal"), img)
 }
 
-// ---- reconciler: decor art (<Pictures>/ryodecors) ----------------------------
-
-// ryodecorsSource is where the shipped decor art set lives: the repo checkout on
-// a dev box (ryoku deploy records it), else /usr/share/ryoku/ryodecors from the
-// ryoku-desktop package. "" when neither is present (a box on a pre-fix package,
-// cured by pulling the update first).
-func ryodecorsSource() string {
-	if repo := sys.ResolveRepo(); repo != "" {
-		if p := filepath.Join(repo, "ryoku", "assets", "ryodecors"); sys.Exists(p) {
-			return p
-		}
-	}
-	if p := "/usr/share/ryoku/ryodecors"; sys.Exists(p) {
-		return p
-	}
-	return ""
-}
-
-// reconcileRyodecors keeps the shipped decor art present in <Pictures>/ryodecors
-// (~/Pictures, or the localized XDG folder such as ~/Imágenes), the folder the Decor and Placard components render from (beside Wallpapers and
-// livewalls). The installer seeds it on a fresh install; this delivers it -- and
-// any art a later release adds -- to a box that updated before it shipped, or one
-// where a file went missing. Missing-only: a file the user swapped or added is
-// left alone, and nothing is pruned (it is a user-owned Pictures folder).
-func reconcileRyodecors(checkOnly bool) recResult {
-	src := ryodecorsSource()
-	if src == "" {
-		return okRes(i18n.T("no decor art source yet (ships with the desktop package)"))
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return okRes(i18n.T("decor art source unreadable (%v)"), err)
-	}
-	dst := filepath.Join(sys.PicturesDir(), "ryodecors")
-	var missing []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if !sys.Exists(filepath.Join(dst, e.Name())) {
-			missing = append(missing, e.Name())
-		}
-	}
-	if len(missing) == 0 {
-		return okRes(i18n.T("decor art present in %s"), dst)
-	}
-	if checkOnly {
-		return wouldRes(i18n.T("%d decor art file(s) missing from %s"), len(missing), dst).
-			withFix("ryoku doctor")
-	}
-	for _, name := range missing {
-		if err := sys.CopyFile(filepath.Join(src, name), filepath.Join(dst, name)); err != nil {
-			return failRes(i18n.T("could not seed decor art %s: %v"), name, err).withFix("ryoku doctor")
-		}
-	}
-	return fixedRes(i18n.T("seeded %d decor art file(s) into %s"), len(missing), dst)
-}
-
 // ---- reconciler: follow-mouse default ---------------------------------------
 
 // followMouseMarker records that the one-time follow-mouse heal has run, so a
@@ -5135,15 +5216,9 @@ func tailLines(s string, n int) string {
 // ("exists in filesystem") and aborts the whole atomic transaction, so no update
 // lands. `ryoku update` now passes --overwrite for these
 // (updater.RyokuOverwriteGlob), but a box already wedged cannot reach that fixed
-// binary; clearing the copies here lets the next update adopt them.
-var ryokuSystemGlobs = []string{
-	"/usr/bin/ryoku-*",
-	"/usr/lib/systemd/system/ryoku-*",
-	"/usr/share/polkit-1/rules.d/*ryoku*.rules",
-	"/usr/share/plymouth/themes/ryoku/*",
-	"/usr/share/ryoku/boot/*",
-	"/etc/systemd/logind.conf.d/10-ryoku-lid.conf",
-}
+// binary; clearing the copies here lets the next update adopt them. The list is
+// the overwrite glob itself, split: one source of truth, no drift.
+var ryokuSystemGlobs = strings.Split(updater.RyokuOverwriteGlob, ",")
 
 // pkgOwnsFile reports whether an installed package owns path. Only the exit
 // status is the answer: wired to stdio, pacman printed "<path> is owned by
