@@ -59,7 +59,6 @@ let
     wmNiri
     ryogami
     rashin
-    prowlAgent
     ryostore
     livewall
     skwdPaper

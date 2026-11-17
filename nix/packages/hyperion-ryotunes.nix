@@ -42,7 +42,7 @@ pkgs.buildGoModule {
   pname = "ryotunes";
   inherit version src;
 
-  vendorHash = "sha256-D4H8m37AXRMvEPLlPOssDc0RKW5bWB6bO7A/SjNJZQM=";
+  vendorHash = "sha256-oDMX8FsRunx8BPWeDvxeWNi3IAOrIymJKf4SIC7WGOk=";
 
   subPackages = [
     "cmd/ryotunes"
@@ -61,7 +61,7 @@ pkgs.buildGoModule {
     substituteInPlace internal/client/conn/conn.go \
       --replace-fail 'exec.Command("ryotunesd")' "exec.Command(\"$out/bin/ryotunesd\")"
     substituteInPlace internal/daemon/server.go \
-      --replace-fail 'exec.Command("ryotunes")' "exec.Command(\"$out/bin/ryotunes\")"
+      --replace-fail 'spawn.Command(context.Background(), "ryotunes")' "spawn.Command(context.Background(), \"$out/bin/ryotunes\")"
   '';
 
   nativeBuildInputs = [

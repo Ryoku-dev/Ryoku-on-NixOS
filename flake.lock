@@ -93,11 +93,11 @@
     "hyperionRyotunesSrc": {
       "flake": false,
       "locked": {
-        "lastModified": 1794265017,
-        "narHash": "sha256-TiD+p8EQBu9oyunPCo4Qs1ECCYnzlXkMAJ/1f0LMTzQ=",
+        "lastModified": 1794874360,
+        "narHash": "sha256-uKibBbpA0hRCbK530qFUVHLsa+XCjfk704v+LHCoUN4=",
         "owner": "Ryoku-dev",
         "repo": "ryotunes",
-        "rev": "78d41a1e0f70b8a1cd715ab90183bd93c0ec1089",
+        "rev": "20638ba282de8a6d2062a8bcf8f471035b334feb",
         "type": "github"
       },
       "original": {
@@ -457,11 +457,11 @@
         "skwdWall": "skwdWall"
       },
       "locked": {
-        "lastModified": 1794264600,
-        "narHash": "sha256-VyZ/oZsD1CHQoZJFwNN2a854dGTOlTOcTqy+EU0VuQA=",
+        "lastModified": 1794920925,
+        "narHash": "sha256-co+lT2lzPuIp1ZllpjkCDq2wkI+EzfPvfMK9WTNPVJM=",
         "owner": "Ryoku-dev",
         "repo": "ryoku",
-        "rev": "e6cddb14a23d9b9a9d0f1c59da1c66e26b638b18",
+        "rev": "5b85b90d46a3314160bc018756a1aa94d841443f",
         "type": "github"
       },
       "original": {
@@ -689,11 +689,11 @@
         "nixpkgs": "nixpkgs_3"
       },
       "locked": {
-        "lastModified": 1792102654,
-        "narHash": "sha256-dNISNxw7+ehLeaA+XBJzUjV24ik6Oibce6C0RxzzZns=",
+        "lastModified": 1792102657,
+        "narHash": "sha256-iXWuCKOidcaAEg6sbnJRGrNfEPjNkcDYmoiW+YJZ74g=",
         "owner": "liixini",
         "repo": "skwd-wall",
-        "rev": "d9142ad9e23bf33390e3fea38a5ce45a6fc286da",
+        "rev": "3f80b1922aa6674065970dc6b78fc948960e84d5",
         "type": "github"
       },
       "original": {
