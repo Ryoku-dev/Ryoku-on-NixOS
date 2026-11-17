@@ -164,6 +164,58 @@ def set_niri_only(text: str, active: bool, target: Target = FLAKE_TARGET) -> str
     return insert_after(text, match, marker)
 
 
+# A NixOS host can enable Ryoku in any imported module. Add a host-local
+# override to the flake's modules list rather than guessing where it lives.
+HOST_OVERRIDE_TAG = "# ryoku-v2-host-override"
+HOST_OVERRIDE = "{ programs.ryoku.hyperionPackages.enable = true; } " + HOST_OVERRIDE_TAG
+HOST_SLIM_TAG = "# ryoku-v2-host-slim"
+HOST_SLIM = "{ programs.ryoku.hyperionNiriOnly.enable = true; } " + HOST_SLIM_TAG
+MODULES_LIST = re.compile(r"(?m)^[ \t]*modules[ \t]*=[ \t]*\[")
+
+
+def host_modules(text: str) -> re.Match:
+    matches = list(MODULES_LIST.finditer(text))
+    if len(matches) == 1:
+        return matches[0]
+
+    host = os.environ.get("RYOKU_NIX_HOST", "")
+    if not host or not re.fullmatch(r"[a-zA-Z0-9_-]+", host):
+        raise ValueError("multiple NixOS hosts found; cannot choose a modules list safely")
+
+    declaration = re.search(
+        r"nixosConfigurations\." + re.escape(host) + r"[ \t]*=", text
+    )
+    if declaration is None:
+        raise ValueError("cannot find host " + host + " in flake.nix")
+    next_host = re.search(r"nixosConfigurations\.[a-zA-Z0-9_-]+[ \t]*=", text[declaration.end():])
+    limit = declaration.end() + next_host.start() if next_host else len(text)
+    local = [m for m in matches if declaration.end() <= m.start() < limit]
+    if len(local) != 1:
+        raise ValueError("cannot identify exactly one modules list for " + host)
+    return local[0]
+
+
+def set_host_override(text: str, source: str) -> str:
+    if source == HYPERION_SOURCE:
+        if FLAKE_TARGET.has_option(text, "hyperionPackages") and HOST_OVERRIDE not in text:
+            raise ValueError("Hyperion option is already managed elsewhere in flake.nix")
+        if HOST_OVERRIDE not in text:
+            match = host_modules(text)
+            text = text[:match.end()] + "\n      " + HOST_OVERRIDE + "\n" + text[match.end():]
+        if os.environ.get("RYOKU_NIX_HYPERION_NIRI_ONLY") == "1" and HOST_SLIM not in text:
+            if FLAKE_TARGET.has_option(text, "hyperionNiriOnly"):
+                raise ValueError("Niri-only option is already managed elsewhere in flake.nix")
+            match = host_modules(text)
+            text = text[:match.end()] + "\n      " + HOST_SLIM + "\n" + text[match.end():]
+    elif source in (
+        "github:Ryoku-dev/Ryoku-on-NixOS/main",
+        "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev",
+    ):
+        text = text.replace("\n      " + HOST_SLIM + "\n", "", 1)
+        text = text.replace("\n      " + HOST_OVERRIDE + "\n", "", 1)
+    return text
+
+
 def remove_legacy_ryotunes_input(text: str) -> str:
     return re.sub(
         r'(?m)^[ \t]*inputs\.ryotunesNix\.url\s*=\s*'
@@ -187,10 +239,6 @@ def apply_mode(text: str, source: str, target: Target) -> str:
     return text
 
 
-def flake_owns_ryoku(text: str) -> bool:
-    return bool(RYOKU_ENABLED.search(text)) or SWITCHER_TAG in text
-
-
 def main() -> int:
     if len(sys.argv) not in (3, 4):
         print(
@@ -209,10 +257,16 @@ def main() -> int:
             flake = remove_legacy_ryotunes_input(flake)
 
         module_text = None
-        if flake_owns_ryoku(flake) or module is None:
+        if HOST_OVERRIDE_TAG in flake:
+            flake = set_host_override(flake, source)
+        elif SWITCHER_TAG in flake or (
+            RYOKU_ENABLED.search(flake) and len(MODULES_LIST.findall(flake)) <= 1
+        ):
             flake = apply_mode(flake, source, FLAKE_TARGET)
-        else:
+        elif module is not None and RYOKU_BLOCK_ENABLED.search(module.read_text()):
             module_text = apply_mode(module.read_text(), source, MODULE_TARGET)
+        else:
+            flake = set_host_override(flake, source)
 
         path.write_text(flake)
         if module_text is not None:

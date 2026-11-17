@@ -1,5 +1,5 @@
 {
-  description = "Ryoku Hyperion for NixOS onboarding (invitation and channel switch)";
+  description = "Ryoku Hyperion for NixOS onboarding (preview channel switch)";
 
   # One input, pinned to the package set the main Ryoku flake builds with, so
   # this evaluates to the same ryoku-v2 derivation as

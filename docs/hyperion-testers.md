@@ -1,23 +1,23 @@
 # Testing Hyperion v2 on NixOS
 
-Hyperion is a preview channel. You need a flake-based NixOS system (the Ryoku
-installer creates one in `/etc/nixos`) and an invitation code from the Ryoku
-team. No GitHub account is needed.
+Hyperion is an experimental preview for flake-based Ryoku on NixOS.
+No invitation code, GitHub account, or organisation membership is needed.
 
 ## Enter
 
+For the Niri-only desktop, run this single command as your normal user:
+
 ```bash
-nix run 'github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos?dir=nix/bootstrap' -- authorize
-nix run 'github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos?dir=nix/bootstrap' -- plan
 nix run 'github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos?dir=nix/bootstrap' -- slim
 ```
 
-1. `authorize` asks for the invitation code and stores it, readable only by
-   you, in `~/.config/ryoku/hyperion-invite`. Run it as the desktop user, not
-   with `sudo`.
-2. `plan` prints the exact `/etc/nixos` changes without making them.
-3. `slim` switches to the Niri-only Hyperion desktop; `enter` keeps the other
-   compositors. Both ask for your password once to build and switch.
+Use `-- enter` instead of `-- slim` to keep the other compositors. The command
+updates the Ryoku flake input and sets Hyperion options for the selected host.
+It supports Ryoku configured in an imported NixOS module. Existing configuration
+is backed up and restored if the build or activation fails. Switching requires
+sudo authorization and can download or build substantial dependencies.
+
+Preview the exact file edits without switching by using `-- plan` instead.
 
 The `?dir=nix/bootstrap` flake evaluates only the onboarding command and one
 pinned nixpkgs, never the desktop. It is the same command as `#ryoku-v2` of
@@ -39,8 +39,12 @@ your library, settings and sign-ins carry over.
 Once the Ryoku team publishes a tested update to the Hyperion branch, run:
 
 ```bash
-ryoku update
+ryoku-nix-update update
 ```
+
+Once the NixOS CLI routing fix is installed, `ryoku update` also uses this
+backend. Older Hyperion builds can still launch the Arch updater, so use the
+explicit command for the first upgrade.
 
 This follows the Hyperion branch already selected in `/etc/nixos`, updates
 its locked Ryoku input, builds and switches the NixOS generation, and restores
@@ -60,7 +64,5 @@ available until the updated desktop has been tested after login.
 
 | Message | Meaning |
 |---|---|
-| `no valid Hyperion invitation is stored` | Run `authorize` again as your user; codes expire. |
-| `invalid or expired Hyperion invitation` | The code was mistyped or has expired; ask for a new one. |
-| `needs exactly one programs.ryoku.enable = true; declaration` | Ryoku is enabled in an unusual place; add `programs.ryoku.hyperionPackages.enable = true;` yourself. |
+| `cannot identify exactly one modules list` | Your flake uses a custom host layout. No files were changed. Add the Hyperion option to that host's module manually. |
 | `channel switch build failed; previous flake files restored` | Nothing changed. Report the build log above the message. |

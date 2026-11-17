@@ -134,6 +134,125 @@ class TrackEditorTests(unittest.TestCase):
         self.assertNotIn("hyperionNiriOnly", reverted)
         self.assertNotIn("hyperionPackages.enable", reverted)
 
+    def test_imported_ryoku_module_uses_reversible_host_override(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { nixpkgs, ryoku, ... }: {
+    nixosConfigurations.testbox = nixpkgs.lib.nixosSystem {
+      modules = [ ./configuration.nix ryoku.nixosModules.default ];
+    };
+  };
+}
+"""
+        hyperion = edit(original, "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos", slim=True)
+        self.assertIn("programs.ryoku.hyperionPackages.enable = true;", hyperion)
+        self.assertIn("programs.ryoku.hyperionNiriOnly.enable = true;", hyperion)
+        self.assertEqual(hyperion.count("# ryoku-v2-host-override"), 1)
+        self.assertEqual(edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos", slim=True), hyperion)
+        self.assertEqual(edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev"), original)
+
+    def test_imported_ryoku_module_full_mode(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { nixpkgs, ryoku, ... }: {
+    nixosConfigurations.testbox = nixpkgs.lib.nixosSystem {
+      modules = [ ./configuration.nix ryoku.nixosModules.default ];
+    };
+  };
+}
+"""
+        hyperion = edit(original, "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos")
+        self.assertIn("hyperionPackages.enable = true;", hyperion)
+        self.assertNotIn("hyperionNiriOnly.enable = true;", hyperion)
+        self.assertEqual(edit(hyperion, "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev"), original)
+
+    def test_two_hosts_only_edit_selected_host(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { nixpkgs, ryoku, ... }: {
+    nixosConfigurations.alpha = nixpkgs.lib.nixosSystem {
+      modules = [ ./alpha.nix ];
+    };
+    nixosConfigurations.beta = nixpkgs.lib.nixosSystem {
+      modules = [ ./beta.nix ];
+    };
+  };
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "flake.nix"
+            path.write_text(original)
+            env = os.environ.copy()
+            env["RYOKU_NIX_HOST"] = "beta"
+            proc = subprocess.run(
+                [sys.executable, str(EDITOR), str(path),
+                 "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"],
+                text=True, capture_output=True, env=env,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            text = path.read_text()
+            self.assertIn("modules = [ ./alpha.nix ];", text)
+            self.assertIn("# ryoku-v2-host-override", text)
+            self.assertEqual(text.count("# ryoku-v2-host-override"), 1)
+            self.assertTrue(text.index("# ryoku-v2-host-override") > text.index("nixosConfigurations.beta"))
+            proc = subprocess.run(
+                [sys.executable, str(EDITOR), str(path),
+                 "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev"],
+                text=True, capture_output=True, env=env,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertEqual(path.read_text(), original)
+
+    def test_two_hosts_do_not_put_overrides_on_another_host(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { nixpkgs, ryoku, ... }: {
+    nixosConfigurations.alpha = nixpkgs.lib.nixosSystem {
+      modules = [ { programs.ryoku.enable = true; } ./alpha.nix ];
+    };
+    nixosConfigurations.beta = nixpkgs.lib.nixosSystem {
+      modules = [ ./beta.nix ];
+    };
+  };
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "flake.nix"
+            path.write_text(original)
+            env = os.environ.copy()
+            env["RYOKU_NIX_HOST"] = "beta"
+            proc = subprocess.run(
+                [sys.executable, str(EDITOR), str(path),
+                 "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"],
+                text=True, capture_output=True, env=env,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            got = path.read_text()
+            self.assertEqual(got.count("# ryoku-v2-host-override"), 1)
+            self.assertTrue(got.index("# ryoku-v2-host-override") > got.index("nixosConfigurations.beta"))
+
+    def test_two_hosts_refuses_unknown_host_without_changes(self):
+        original = """{
+  inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
+  outputs = { nixpkgs, ryoku, ... }: {
+    nixosConfigurations.alpha = nixpkgs.lib.nixosSystem { modules = [ ./alpha.nix ]; };
+    nixosConfigurations.beta = nixpkgs.lib.nixosSystem { modules = [ ./beta.nix ]; };
+  };
+}
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "flake.nix"
+            path.write_text(original)
+            env = os.environ.copy()
+            env["RYOKU_NIX_HOST"] = "other"
+            proc = subprocess.run(
+                [sys.executable, str(EDITOR), str(path),
+                 "github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos"],
+                text=True, capture_output=True, env=env,
+            )
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertEqual(path.read_text(), original)
+
     def test_hyperion_rejects_external_option(self):
         original = """{
   inputs.ryoku.url = "github:Ryoku-dev/Ryoku-on-NixOS/unstable-dev";
