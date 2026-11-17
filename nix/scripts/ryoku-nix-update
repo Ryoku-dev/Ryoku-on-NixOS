@@ -823,23 +823,17 @@ track_nix() {
 
     track_restore=true
     if ! "$sudo_bin" "$cp_bin" "$new_flake" "$flake_file"; then
-        restore_track_files
-        rm -rf "$work"
-        return 1
+        die "channel switch failed while installing the new flake; restoring previous files"
     fi
     if [ "${#module_args[@]}" -gt 0 ] &&
        ! cmp -s "$old_module" "$new_module" &&
        ! "$sudo_bin" "$cp_bin" "$new_module" "$module_file"; then
-        restore_track_files
-        rm -rf "$work"
-        return 1
+        die "channel switch failed while updating the Ryoku module; restoring previous files"
     fi
 
     if ! "$sudo_bin" "$nix_bin" flake update \
         "$input" \
         --flake "$flake_root"; then
-        restore_track_files
-        rm -rf "$work"
         die "channel switch failed while updating the Ryoku flake input"
     fi
 
@@ -848,9 +842,7 @@ track_nix() {
     if ! "$sudo_bin" "$nix_bin" build \
         "${flake_root}#nixosConfigurations.${host}.config.system.build.toplevel" \
         --no-link; then
-        restore_track_files
-        rm -rf "$work"
-        die "channel switch build failed; previous flake files restored"
+        die "channel switch build failed; restoring previous flake files"
     fi
 
     previous_system="$(readlink -f /run/current-system 2>/dev/null || true)"
@@ -863,16 +855,7 @@ track_nix() {
 
     track_activating=true
     if ! switch_generation "$host"; then
-        track_activating=false
-        restore_track_files
-        if [ -n "$previous_system" ]; then
-            printf 'Restoring the previous NixOS runtime generation.\n' >&2
-            if ! rollback_activation "$previous_system"; then
-                printf 'ryoku-nix-update: warning: the failed activation could not be switched back automatically; select the previous NixOS generation if the live system is inconsistent.\n' >&2
-            fi
-        fi
-        rm -rf "$work"
-        die "channel switch activation failed; previous flake files restored"
+        die "channel switch activation failed; restoring previous system and flake files"
     fi
 
     # The new generation is live: nothing left to undo on exit.

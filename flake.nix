@@ -156,6 +156,20 @@
         pkgs = hyperionPkgs;
       };
 
+      # Keep Ryogami's normal Go unit tests, but do not gate a system build on
+      # ImageMagick/FFmpeg subprocesses and wall-clock watcher assertions.
+      # Those integration tests must run on a host with real media tooling.
+      hyperionRyogami = hyperionRyoku.ryogami.overrideAttrs (old: {
+        buildPhase =
+          assert hyperionPkgs.lib.assertMsg
+            (hyperionPkgs.lib.hasInfix "go test -skip '^TestE2E' ./..." old.buildPhase)
+            "Hyperion Ryogami test invocation changed upstream";
+          builtins.replaceStrings
+            [ "go test -skip '^TestE2E' ./..." ]
+            [ "go test -p 1 -parallel 1 -skip '^(TestE2E.*|TestScanGeneratesThumb|TestScanSkipsFreshThumb|TestGenerateWeThumbReadsGIFFrame|TestWorkshopWatchCoalescesWriteBurst)$' ./..." ]
+            old.buildPhase;
+      });
+
       # Apps Arch Hyperion treats as optional (ryoku-desktop optdepends and
       # the independently released Ryotunes and Ryoport). They are not part
       # of the system: RyoMarket's Hyperion edition installs them into the
@@ -172,8 +186,9 @@
       # Upstream's bundle lists store path strings, so compare by path.
       withoutPaths = drop: builtins.filter
         (p: !(builtins.elem (toString p) (map toString drop)));
-      hyperionComponents =
-        withoutPaths (hyperionOptionalApps ++ hyperionRetired) hyperionRyoku.bundle.paths;
+      hyperionComponents = map
+        (p: if toString p == toString hyperionRyoku.ryogami then hyperionRyogami else p)
+        (withoutPaths (hyperionOptionalApps ++ hyperionRetired) hyperionRyoku.bundle.paths);
       hyperionNiriOnlyComponents =
         withoutPaths [ hyperionRyoku.wmHyprland ] hyperionComponents;
 
@@ -216,7 +231,7 @@
         name = "ryoku-hyperion-user-qml";
         paths = [
           hyperionQmlRuntime
-          hyperionRyoku.ryogami
+          hyperionRyogami
           hyperionPkgs.qt6.qtmultimedia
           hyperionPkgs.qt6.qtquick3d
           hyperionPkgs.qt6.qtwayland
@@ -265,6 +280,7 @@
           ryokuNixpkgs = pkgs;
           ryokuHyperionNixpkgs = hyperionPkgs;
           ryokuHyperionPackages = hyperionRyoku // {
+            ryogami = hyperionRyogami;
             # Keep the existing compositor-free cursor recipe on Hyperion's sources.
             cursorMaterial = import ./nix/packages/ryoku-cursor-material.nix {
               pkgs = hyperionPkgs;
@@ -355,6 +371,7 @@
       packages.${system} = {
         ryoku-shima = ryokuShima;
         ryoku-v2 = ryokuV2;
+        ryoku-hyperion-ryogami = hyperionRyogami;
         ryoku-hyperion-qml-runtime = hyperionQmlRuntime;
         ryoku-hyperion-user-qml = hyperionUserQml;
         ryoku-hyperion-materialize = hyperionMaterializer;
@@ -725,7 +742,7 @@
         '';
 
         ryoku-hyperion-bundle-provenance = import ./nix/tests/hyperion-bundle-provenance.nix {
-          inherit pkgs hyperionRyoku hyperionOptionalApps hyperionRetired;
+          inherit pkgs hyperionRyoku hyperionRyogami hyperionOptionalApps hyperionRetired;
           hyperionPackages = ryokuHyperion.packages.${system};
           bridges = hyperionNixosBridges;
           fullBundle = ryokuHyperionNixosBundle;
@@ -956,6 +973,15 @@
           { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep procps ]; } ''
             RYOKU_RETIRE_RYOTUNES=${./nix/scripts/ryoku-hyperion-retire-ryotunes} \
               bash ${./nix/tests/test-retire-ryotunes.sh}
+            touch "$out"
+          '';
+
+        ryoku-nix-update-track-build-rollback = pkgs.runCommand
+          "ryoku-nix-update-track-build-rollback-check"
+          { nativeBuildInputs = with pkgs; [ bash coreutils gnugrep python3 util-linux ]; }
+          ''
+            RYOKU_NIX_UPDATE_TEST_HELPER=${./nix/scripts/ryoku-nix-update} \
+              bash ${./nix/tests/test-nix-update-track-build-rollback.sh}
             touch "$out"
           '';
 
