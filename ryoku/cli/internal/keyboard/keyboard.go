@@ -276,14 +276,6 @@ func (l Layout) Primary() string {
 	return strings.TrimSpace(strings.SplitN(l.Layout, ",", 2)[0])
 }
 
-<<<<<<< port (unstable-dev)
-var (
-	applySystemKeymap = func(layout, variant, options string) int {
-		return host.Default().Keymap([]string{"set", layout, variant, options})
-	}
-	isNixBackend = sys.NixBackend
-)
-=======
 // list is the layouts in order with blanks dropped, so a stored "fr,us," never
 // reaches the system as an empty slot.
 func (l Layout) list() string {
@@ -296,24 +288,21 @@ func (l Layout) list() string {
 	return strings.Join(out, ",")
 }
 
-var applySystemKeymap = func(layout, variant, options string) int {
-	return host.Default().Keymap([]string{"set", layout, variant, options})
-}
->>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
+var (
+	applySystemKeymap = func(layout, variant, options string) int {
+		return host.Default().Keymap([]string{"set", layout, variant, options})
+	}
+	isNixBackend = sys.NixBackend
+)
 
 // ApplySystem writes the layout to the greeter and console through the host
 // seam so the same caller works with localectl and Void's rc.conf. Every
 // layout goes, not just the first: the login screen switches between them.
 func ApplySystem(l Layout) error {
-<<<<<<< port (unstable-dev)
 	if isNixBackend() {
 		return fmt.Errorf(i18n.T("system keyboard layout is managed declaratively on NixOS"))
 	}
-	p := l.Primary()
-	if p == "" {
-=======
 	if l.Primary() == "" {
->>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
 		return fmt.Errorf(i18n.T("no layout to apply"))
 	}
 	if code := applySystemKeymap(l.list(), l.Variant, l.Options); code != host.ExitOK {

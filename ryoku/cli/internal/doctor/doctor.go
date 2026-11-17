@@ -42,7 +42,7 @@ import (
 const ryokuIssuesURL = "https://github.com/ryoku-dev/ryoku/issues"
 
 var (
-	doctorReconcilers    = reconcilers
+	doctorReconcilers    = platformReconcilers
 	doctorPackageManager = func() (host.PackageManager, error) {
 		return host.Default().PackageManager()
 	}
@@ -465,16 +465,11 @@ func runReconcilers(checkOnly bool) []finding {
 	defer func() { doctorFedoraReleaseStatus = fetchFedoraReleaseStatus }()
 	saved, err := loadDismissals()
 	var out []finding
-<<<<<<< port (unstable-dev)
-	for _, r := range platformReconcilers() {
-		out = append(out, finding{name: r.name, res: r.run(checkOnly)})
-=======
 	if err != nil {
 		out = append(out, finding{name: i18n.T("doctor dismissals"), res: failRes("read dismissals: %v", err)})
 	}
 	for _, r := range doctorReconcilers() {
 		out = append(out, finding{name: r.name, res: runWithDismissals(r, checkOnly, saved)})
->>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
 	}
 	return out
 }

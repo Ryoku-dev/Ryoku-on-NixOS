@@ -567,15 +567,11 @@ Singleton {
             root.fetchOpenMeteo();
             return;
         }
-<<<<<<< port (unstable-dev)
-
-=======
         root.fetchWttr();
     }
 
     function fetchWttr(): void {
         if (fetcher.running) return;
->>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
         let query;
         if (root.location.lat !== 0 || root.location.lon !== 0) {
             query = root.location.lat + "," + root.location.lon;
