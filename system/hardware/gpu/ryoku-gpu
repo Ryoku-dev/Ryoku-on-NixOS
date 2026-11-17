@@ -251,17 +251,8 @@ cmd_order() {
   local dest="${1:-}"
 
   if [[ $dest == "--effective" ]]; then
-<<<<<<< port (unstable-dev)
-    local conf="${2:-$GPU_CONF_DEFAULT}" value
-
-    value="$(
-      sed -n 's/^hl\.env("AQ_DRM_DEVICES", *"\([^"]*\)")$/\1/p'         "$conf" 2>/dev/null         | head -n1
-    )"
-
-=======
     local conf="${2:-$GPU_CONF_DEFAULT}" value primary
     value="$(sed -n 's/^hl\.env("AQ_DRM_DEVICES", *"\([^"]*\)")$/\1/p' "$conf" 2>/dev/null | head -n1)"
->>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
     [[ -n $value ]] || return 1
     # a route pin only applies while its GPU drives a screen, as gpu.lua checks
     if grep -q '^-- ryoku-gpu-route: external' "$conf"; then
@@ -550,15 +541,11 @@ Pin the strongest safe GPU as Hyprland's primary render device.
 
 Commands:
   detect [--json]  Show detected GPUs (strongest first) and the chosen primary.
-<<<<<<< port (unstable-dev)
-  order [--effective]  Print the recommended order, or the currently written pin.
-=======
   order [--effective [PATH]]
                   Print the recommended AQ_DRM_DEVICES value (exit 1 if none);
                   with --effective, print the pin file's own value instead
                   (what the compositor would read), exit 1 when unpinned or
                   when a monitor-route pin has no monitor on its GPU.
->>>>>>> upstream Ryoku 1.1.1 (3f4f6ee)
   persist [PATH]  Write the Hyprland pin (Lua) to PATH, to ~/.config/hypr/gpu.lua
                   by default, or to stdout when PATH is '-'.
   disable [PATH]  Reset the pin file to a managed comment-only placeholder.
