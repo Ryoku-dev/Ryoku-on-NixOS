@@ -34,6 +34,20 @@ Ryotunes copies (RyoMarket profiles, `~/.local/bin` links, stale menu entries)
 are moved to `~/.local/state/ryoku/nix/backups/<time>/ryotunes-legacy`, and
 your library, settings and sign-ins carry over.
 
+## Update an existing Hyperion installation
+
+Once the Ryoku team publishes a tested update to the Hyperion branch, run:
+
+```bash
+ryoku update
+```
+
+This follows the Hyperion branch already selected in `/etc/nixos`, updates
+its locked Ryoku input, builds and switches the NixOS generation, and restores
+the previous lock and active generation if activation fails. It does not
+switch you to main or unstable-dev. Keep the previous NixOS boot generation
+available until the updated desktop has been tested after login.
+
 ## Leave or recover
 
 - `ryoku-v2 leave` (installed with Hyperion) switches back to unstable.
