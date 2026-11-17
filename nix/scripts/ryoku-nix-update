@@ -607,7 +607,11 @@ update_nix() {
         rm -f "$backup"
     }
 
-    trap cleanup EXIT INT TERM
+    # A signal must end the update, not merely run cleanup and carry on to the
+    # switch. Exiting on INT/TERM runs the EXIT handler exactly once.
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
     if [ "$local_checkout" = true ]; then
         printf 'Refreshing Ryoku local flake input: %s\n' "$input"
@@ -645,7 +649,7 @@ update_nix() {
     trap - EXIT INT TERM
 
     if ! refresh_runtime "$shell_expected"; then
-        die "NixOS generation switched, but the Ryoku user session did not recover; inspect ryoku-shell.service"
+        die "NixOS generation switched, but the Ryoku user session did not recover; inspect ryoku-materialize.service and ryoku-shell.service"
         return 1
     fi
 
@@ -666,6 +670,15 @@ refresh_runtime() {
 
     if ! systemctl --user restart ryoku-materialize.service >/dev/null 2>&1; then
         printf 'ryoku-nix-update: failed to materialize the active Ryoku generation.\n' >&2
+        return 1
+    fi
+
+    # The unit tolerates a failed run so that login is never blocked, and then
+    # exits 0; the failure is only recorded in a marker. An update must not
+    # report the desktop runtime as refreshed while that marker is present.
+    materialize_marker="${XDG_STATE_HOME:-${HOME:-}/.local/state}/ryoku/nix/materialize-failed"
+    if [ -e "$materialize_marker" ]; then
+        printf 'ryoku-nix-update: failed to materialize the active Ryoku generation (see %s).\n' "$materialize_marker" >&2
         return 1
     fi
 
@@ -758,10 +771,32 @@ track_nix() {
         fi
     }
 
+    # Until the new generation is live, an interrupted channel switch must put
+    # the flake files back; once activation starts it must also undo that.
+    track_restore=false
+    track_activating=false
+    previous_system=""
+    track_cleanup() {
+        if [ "$track_activating" = true ] && [ -n "$previous_system" ]; then
+            printf 'Restoring the previous NixOS runtime generation.\n' >&2
+            rollback_activation "$previous_system" ||
+                printf 'ryoku-nix-update: warning: the interrupted activation could not be switched back automatically; select the previous NixOS generation if the live system is inconsistent.\n' >&2
+        fi
+        if [ "$track_restore" = true ]; then
+            printf 'Restoring the previous Ryoku flake files.\n' >&2
+            restore_track_files
+        fi
+        rm -rf "$work"
+    }
+    trap track_cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
     printf 'Ryoku for NixOS: switching to %s (%s).\n' \
         "$label" \
         "$branch"
 
+    track_restore=true
     if ! "$sudo_bin" "$cp_bin" "$new_flake" "$flake_file"; then
         rm -rf "$work"
         return 1
@@ -793,7 +828,9 @@ track_nix() {
         shell_expected=true
     fi
 
+    track_activating=true
     if ! switch_generation "$host"; then
+        track_activating=false
         restore_track_files
         if [ -n "$previous_system" ]; then
             printf 'Restoring the previous NixOS runtime generation.\n' >&2
@@ -805,10 +842,14 @@ track_nix() {
         die "channel switch activation failed; previous flake files restored"
     fi
 
+    # The new generation is live: nothing left to undo on exit.
+    track_activating=false
+    track_restore=false
+    trap - EXIT INT TERM
     rm -rf "$work"
 
     if ! refresh_runtime "$shell_expected"; then
-        die "channel switched, but the Ryoku user session did not recover; inspect ryoku-shell.service"
+        die "channel switched, but the Ryoku user session did not recover; inspect ryoku-materialize.service and ryoku-shell.service"
         return 1
     fi
 

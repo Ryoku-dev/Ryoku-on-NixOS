@@ -20,7 +20,10 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-const minISODiskBytes = int64(16 * 1024 * 1024 * 1024)
+// Keep in sync with min_install_disk_gib in ryoku-install-backend.sh, which
+// enforces it again before erasing the disk.
+const minISODiskGiB = 40
+const minISODiskBytes = int64(minISODiskGiB * 1024 * 1024 * 1024)
 const dryRunDiskPath = "/dev/vda"
 
 type isoStep struct {
@@ -1093,7 +1096,7 @@ func (m isoModel) diskBody() string {
 		return fg(cSub, "Scanning writable disks …")
 	}
 	if len(m.disks) == 0 {
-		return bold(cRed, "No eligible writable disks found") + "\n\n" + fg(cSub, "Ryoku hides the live installer disk and disks smaller than 16 GiB. Press R to rescan.")
+		return bold(cRed, "No eligible writable disks found") + "\n\n" + fg(cSub, fmt.Sprintf("Ryoku hides the live installer disk and disks smaller than %d GiB. Press R to rescan.", minISODiskGiB))
 	}
 	var b strings.Builder
 	for i, disk := range m.disks {

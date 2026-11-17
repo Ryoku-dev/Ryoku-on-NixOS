@@ -1470,3 +1470,109 @@ func TestResolveModeSunFollowsTheWindow(t *testing.T) {
 		}
 	})
 }
+
+// TestMatugenCarrierKeepsBothLooks: templates that ship a dark and a light theme
+// (zed, ryotunes) must get each mode's own colours, not the active one twice.
+func TestMatugenCarrierKeepsBothLooks(t *testing.T) {
+	out := []byte(`{"colors":{
+		"surface":{"dark":{"color":"#101010"},"default":{"color":"#f0f0f0"},"light":{"color":"#f0f0f0"}},
+		"primary":{"default":{"color":"#336699"}}}}`)
+	active, dark, light, err := parseMatugenPalette(out, "light")
+	if err != nil {
+		t.Fatal(err)
+	}
+	carrier := matugenCarrier(matugenShellPalette(active), matugenShellPalette(dark), matugenShellPalette(light), "light")
+	hex := func(role, mode string) string {
+		entry, _ := carrier["colors"].(map[string]any)[role].(map[string]any)
+		co, _ := entry[mode].(map[string]any)
+		s, _ := co["hex"].(string)
+		return s
+	}
+	for _, c := range []struct{ role, mode, want string }{
+		{"surface", "default", "#f0f0f0"},
+		{"surface", "dark", "#101010"},
+		{"surface", "light", "#f0f0f0"},
+		{"surface_argb", "dark", "#ff101010"},
+		{"background", "dark", "#101010"},
+		{"primary", "dark", "#336699"},
+		{"primary", "light", "#336699"},
+	} {
+		if got := hex(c.role, c.mode); got != c.want {
+			t.Errorf("colors.%s.%s.hex = %q, want %q", c.role, c.mode, got, c.want)
+		}
+	}
+	if carrier["mode"] != "light" {
+		t.Errorf("carrier mode = %v, want light", carrier["mode"])
+	}
+}
+
+func TestMatugenRenderFilteredFollowsXDGDirs(t *testing.T) {
+	home := t.TempDir()
+	cfgHome := filepath.Join(home, "profile", ".config")
+	cacheHome := filepath.Join(home, "profile", ".cache")
+	dataHome := filepath.Join(home, "profile", "data")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_CACHE_HOME", cacheHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	bin := t.TempDir()
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	seen := filepath.Join(home, "seen.toml")
+	writeShim(t, filepath.Join(bin, "matugen"), `cp "$2" "`+seen+`"`)
+
+	if err := os.MkdirAll(filepath.Join(cacheHome, "ryoku"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(cfgHome, "matugen", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(src), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, src, `[config]
+
+[templates.kitty]
+input_path = "~/.config/matugen/templates/kitty-colors.conf"
+output_path = "~/.config/kitty/current-theme.conf"
+
+[templates.hypr]
+input_path = "~/.config/matugen/templates/hypr-colors.lua"
+output_path = "~/.cache/ryoku/hypr-colors.lua"
+
+[templates.telegram]
+input_path = "~/.config/matugen/templates/telegram.tdesktop-theme"
+output_path = "~/.local/share/TelegramDesktop/tdata/matugen.tdesktop-theme"
+`)
+
+	if !matugenRenderFiltered(src, filepath.Join(home, "carrier.json"), func(string) bool { return true }) {
+		t.Fatal("render failed")
+	}
+	got, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`input_path = "` + cfgHome + `/matugen/templates/kitty-colors.conf"`,
+		`output_path = "` + cfgHome + `/kitty/current-theme.conf"`,
+		`output_path = "` + cacheHome + `/ryoku/hypr-colors.lua"`,
+		`output_path = "` + dataHome + `/TelegramDesktop/tdata/matugen.tdesktop-theme"`,
+	} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("staged config missing %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(string(got), "~/") {
+		t.Errorf("staged config still has a home-relative path:\n%s", got)
+	}
+}
+
+func TestExpandMatugenHomeUnsetXDGIsHomeDefaults(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	got := expandMatugenHome(`a = "~/.config/x"` + "\n" + `b = "~/.cache/y"` + "\n" + `c = "~/.local/share/z"` + "\n" + `d = "~/.steam/s"`)
+	want := `a = "/home/u/.config/x"` + "\n" + `b = "/home/u/.cache/y"` + "\n" + `c = "/home/u/.local/share/z"` + "\n" + `d = "~/.steam/s"`
+	if got != want {
+		t.Errorf("got %q want %q", got, want)
+	}
+}

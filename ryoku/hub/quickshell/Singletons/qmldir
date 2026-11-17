@@ -8,3 +8,4 @@ singleton UserSchemes UserSchemes.qml
 singleton ProviderSchema ProviderSchema.qml
 singleton BarStyles BarStyles.qml
 singleton Host Host.qml
+singleton NetworkTopic NetworkTopic.qml

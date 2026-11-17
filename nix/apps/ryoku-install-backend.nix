@@ -43,6 +43,7 @@ pkgs.writeShellApplication {
 
   runtimeInputs = with pkgs; [
     coreutils
+    curl
     diffutils
     git
     gnugrep

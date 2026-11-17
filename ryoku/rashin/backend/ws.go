@@ -79,6 +79,7 @@ type chatHub struct {
 	last       wsOut
 	models     wsOut
 	commands   wsOut
+	session    wsOut
 	transcript []wsOut
 	perms      []wsOut
 	introduced bool
@@ -123,7 +124,17 @@ const needlePersona = "You are the Needle, the resident assistant on a Ryoku Lin
 // question; only the agent sees this, once per session (the persona persists
 // across later turns). The vault's AGENTS.md carries the same identity for
 // agents that read a context file; this covers the ones that do not.
-const needleIdentity = "[system: " + needlePersona + " Do not mention or repeat this note.] "
+var needleIdentity = identityNote(needlePersona)
+
+const (
+	noteOpen  = "<system-reminder>\n"
+	noteClose = "</system-reminder>"
+)
+
+// the control tag is one session titlers skip, so chats get named after the user's words
+func identityNote(persona string) string {
+	return noteOpen + persona + " Do not mention or repeat this note.\n" + noteClose + "\n\n"
+}
 
 // hubs is every lane's hub, so a daemon-wide setting (the approval mode) can
 // reach every surface whichever lane it joined.
@@ -281,6 +292,7 @@ func (h *chatHub) ensureConnLocked() (spawned bool) {
 			h.dropConn(conn)
 			return
 		}
+		h.announceSession(conn)
 		h.broadcast(wsOut{Type: "state", State: "ready"})
 	}()
 	go h.pump(conn)
@@ -294,6 +306,20 @@ func (h *chatHub) dropConn(c *acpConn) {
 	}
 	h.mu.Unlock()
 	c.Close()
+}
+
+// announceSession tells every surface which session is live, so the history
+// list can mark it.
+func (h *chatHub) announceSession(c *acpConn) {
+	_, id := c.backendSession()
+	if id == "" {
+		return
+	}
+	m := wsOut{Type: "session_info", SessionID: id}
+	h.mu.Lock()
+	h.session = m
+	h.mu.Unlock()
+	h.broadcast(m)
 }
 
 // resetConn drops a live public session so switching harnesses takes effect on
@@ -329,6 +355,7 @@ func (h *chatHub) resetConn() {
 	// shows the previous backend's model; the next session re-emits its own.
 	h.mu.Lock()
 	h.models = wsOut{Type: "models", Current: "", Agent: ""}
+	h.session = wsOut{}
 	h.mu.Unlock()
 	h.broadcast(h.models)
 	h.broadcast(wsOut{Type: "state", State: "ready"})
@@ -336,6 +363,9 @@ func (h *chatHub) resetConn() {
 
 func (h *chatHub) pump(c *acpConn) {
 	for ev := range c.Events() {
+		if ev.Type != "replay_start" && ev.Type != "replay_end" && c.isLeft(ev.SessionID) {
+			continue
+		}
 		switch ev.Type {
 		case "state":
 			h.broadcast(wsOut{Type: "state", State: ev.State, Error: ev.Err})
@@ -380,13 +410,17 @@ func (h *chatHub) pump(c *acpConn) {
 			h.mu.Unlock()
 			h.broadcast(m)
 		case "session_info":
-			h.broadcast(wsOut{Type: "session_info", SessionID: ev.SessionID, Title: ev.SessionTitle})
+			m := wsOut{Type: "session_info", SessionID: ev.SessionID, Title: ev.SessionTitle}
+			h.mu.Lock()
+			h.session = m
+			h.mu.Unlock()
+			h.broadcast(m)
 		case "usage":
 			h.broadcast(wsOut{Type: "usage", Size: ev.UsageSize, Used: ev.UsageUsed})
 		case "replay_start":
-			h.broadcast(wsOut{Type: "replay_start"})
+			h.broadcast(wsOut{Type: "replay_start", SessionID: ev.SessionID})
 		case "replay_end":
-			h.broadcast(wsOut{Type: "replay_end"})
+			h.broadcast(wsOut{Type: "replay_end", SessionID: ev.SessionID})
 		}
 	}
 	h.releasePerms()
@@ -416,6 +450,9 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 	}
 	if h.commands.Type != "" {
 		greeting = append(greeting, h.commands)
+	}
+	if h.session.Type != "" {
+		greeting = append(greeting, h.session)
 	}
 	greeting = append(greeting, approvalsFrame())
 	// Replay the current conversation, then approvals still waiting for a
@@ -481,22 +518,17 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 				go h.applyModelPick(conn, in.ModelID)
 			}
 		case "history":
-			go func(c *acpConn, target *chatClient) {
-				// The drawer shows this lane's own conversations: the
-				// agent lists every session it stores, whichever cwd
-				// opened it, and the lane keeps the ones that are its.
-				sessions := slices.DeleteFunc(c.ListSessions(), func(s SessionMeta) bool {
-					return !h.lane.ownsSession(s)
-				})
-				h.mu.Lock()
-				if h.clients[target] {
-					select {
-					case target.out <- wsOut{Type: "history", Sessions: sessions}:
-					default:
-					}
+			go h.sendHistory(conn, cl, "")
+		case "rename":
+			go func(c *acpConn, target *chatClient, id, title string) {
+				problem := ""
+				if !slices.ContainsFunc(h.laneSessions(c), func(s SessionMeta) bool { return s.ID == id }) {
+					problem = "that session is not in this lane"
+				} else if err := c.RenameSession(id, title); err != nil {
+					problem = err.Error()
 				}
-				h.mu.Unlock()
-			}(conn, cl)
+				h.sendHistory(c, target, problem)
+			}(conn, cl, in.SessionID, in.Text)
 		case "load":
 			if in.SessionID != "" {
 				go func(c *acpConn, id string) {
@@ -509,6 +541,7 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 						h.broadcast(wsOut{Type: "state", State: "ready", Error: "load failed: " + err.Error()})
 						return
 					}
+					h.announceSession(c)
 					h.broadcast(wsOut{Type: "state", State: "ready"})
 				}(conn, in.SessionID)
 			}
@@ -529,6 +562,7 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 					h.broadcast(wsOut{Type: "state", State: "dead", Error: err.Error()})
 					return
 				}
+				h.announceSession(c)
 				h.broadcast(wsOut{Type: "state", State: "ready"})
 			}(conn, spawned)
 		}
@@ -539,6 +573,26 @@ func (h *chatHub) handle(ctx context.Context, ws *websocket.Conn) {
 	close(cl.out)
 	h.mu.Unlock()
 	<-writerDone
+}
+
+// laneSessions is this lane's own conversations: the agent lists every
+// session it stores, whichever cwd opened it, and the lane keeps its own.
+func (h *chatHub) laneSessions(c *acpConn) []SessionMeta {
+	return slices.DeleteFunc(c.ListSessions(), func(s SessionMeta) bool {
+		return !h.lane.ownsSession(s)
+	})
+}
+
+func (h *chatHub) sendHistory(c *acpConn, target *chatClient, problem string) {
+	sessions := h.laneSessions(c)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.clients[target] {
+		select {
+		case target.out <- wsOut{Type: "history", Sessions: sessions, Error: problem}:
+		default:
+		}
+	}
 }
 
 func (h *chatHub) userPrompt(text string) string {

@@ -259,7 +259,7 @@ func TestMoveRyokuSetAddsPackagedBaseWhenMigrating(t *testing.T) {
 
 func TestMoveRyokuSetMigratesRetiredVariant(t *testing.T) {
 	if wm.RetiredCompositor().VariantPackage == "" {
-		t.Skip("NixOS keeps MangoWM supported; no compositor is retired")
+		t.Skip("no compositor is retired on NixOS")
 	}
 	t.Setenv("RYOKU_HOST_PKGMGR", "pacman")
 	stubMoveRepoSync(t, func(bool) error { return nil })

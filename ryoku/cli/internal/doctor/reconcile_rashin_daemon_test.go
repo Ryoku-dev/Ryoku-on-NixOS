@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -281,5 +282,21 @@ func TestAwaitProwlGatewayWaitsForALateStart(t *testing.T) {
 	prowlGatewaySettle = 300 * time.Millisecond
 	if awaitProwlGateway() {
 		t.Fatal("a gateway that never answers was reported up")
+	}
+}
+
+func TestRashinInstalledWithoutNixUnitDoesNotAskForRebuild(t *testing.T) {
+	oldService := rashinService
+	t.Cleanup(func() { rashinService = oldService })
+	rashinService = func([]string) int { return host.ExitAbsent }
+
+	for _, checkOnly := range []bool{true, false} {
+		r := reconcileRashinDaemonNixOS(checkOnly)
+		if r.status == recWarn || r.status == recFailed || r.status == recWouldFix {
+			t.Fatalf("checkOnly=%v status=%s", checkOnly, r.status.label())
+		}
+		if strings.Contains(r.remedy+r.detail, "rebuild") {
+			t.Fatalf("checkOnly=%v asks for a rebuild: %q %q", checkOnly, r.detail, r.remedy)
+		}
 	}
 }

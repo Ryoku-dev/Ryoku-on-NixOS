@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/run/wrappers/bin:@RYOKU_RUNTIME_PATH@"
+
+name="${1:-}"
+
+case "$name" in
+    hyprland|niri|mango) ;;
+    *)
+        echo "usage: ryoku-sddm-session <hyprland|niri|mango>" >&2
+        exit 2
+        ;;
+esac
+
+# Elevate through the existing NixOS polkit integration.
+if (( EUID != 0 )); then
+    exec /run/wrappers/bin/pkexec \
+        "$(readlink -f "$0")" "$name"
+fi
+
+python3 - "$name" <<'PY'
+import configparser
+import os
+import pwd
+import re
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+name = sys.argv[1]
+
+sessions = {
+    "hyprland": "ryoku-hyprland.desktop",
+    "niri": "ryoku-niri.desktop",
+    "mango": "ryoku-mango.desktop",
+}
+
+# Read the actual session directory configured by NixOS.
+config = configparser.ConfigParser(interpolation=None)
+if not config.read("/etc/sddm.conf.d/00-nixos.conf"):
+    raise SystemExit("cannot read NixOS SDDM configuration")
+
+session_dir = config.get(
+    "Wayland", "SessionDir", fallback=""
+).strip()
+
+if not session_dir:
+    raise SystemExit("SDDM Wayland SessionDir is missing")
+
+session = Path(session_dir) / sessions[name]
+
+if not session.is_file():
+    raise SystemExit(f"session does not exist: {session}")
+
+sddm = pwd.getpwnam("sddm")
+state = Path(sddm.pw_dir) / "state.conf"
+
+if state.is_symlink():
+    raise SystemExit("refusing to modify a symlinked SDDM state file")
+
+try:
+    old_stat = state.lstat()
+    contents = state.read_text()
+    uid, gid = old_stat.st_uid, old_stat.st_gid
+    mode = stat.S_IMODE(old_stat.st_mode)
+except FileNotFoundError:
+    contents = ""
+    uid, gid = sddm.pw_uid, sddm.pw_gid
+    mode = 0o644
+
+lines = contents.splitlines()
+
+# Locate the [Last] section without disturbing other settings.
+start = next(
+    (i for i, line in enumerate(lines)
+     if line.strip().lower() == "[last]"),
+    None
+)
+
+if start is None:
+    if lines and lines[-1].strip():
+        lines.append("")
+    lines.extend(["[Last]", f"Session={session}"])
+else:
+    end = next(
+        (i for i in range(start + 1, len(lines))
+         if re.match(r"^\s*\[.*\]\s*$", lines[i])),
+        len(lines)
+    )
+
+    session_line = next(
+        (i for i in range(start + 1, end)
+         if re.match(r"^\s*Session\s*=", lines[i], re.I)),
+        None
+    )
+
+    if session_line is None:
+        lines.insert(end, f"Session={session}")
+    else:
+        lines[session_line] = f"Session={session}"
+
+updated = "\n".join(lines).rstrip("\n") + "\n"
+
+# Atomic replacement, preserving existing ownership and permissions.
+fd, tmp = tempfile.mkstemp(
+    prefix=".state.conf.",
+    dir=state.parent
+)
+
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
+        file.write(updated)
+        file.flush()
+        os.fsync(file.fileno())
+
+    os.chown(tmp, uid, gid)
+    os.chmod(tmp, mode)
+    os.replace(tmp, state)
+finally:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+
+print(f"SDDM next session: {name}")
+PY

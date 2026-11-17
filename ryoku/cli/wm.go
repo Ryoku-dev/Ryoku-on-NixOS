@@ -38,6 +38,8 @@ func cmdWm(args []string) {
 		cmdWmCompat(args[1:])
 	case "state":
 		cmdWmState()
+	case "watch":
+		cmdWmWatch(args[1:])
 	case "outputs":
 		cmdWmOutputs(args[1:])
 	case "act":
@@ -60,6 +62,8 @@ func cmdWm(args []string) {
 func wmUsage() {
 	fmt.Print(i18n.T("Usage: ryoku wm <command>\n\n  status            print the detected provider, its capabilities and workspace model\n  caps              print the active provider's capability manifest (JSON)\n  compat <dir>      check a plugin directory against the active provider (JSON)\n  state             print the active provider's current state (JSON)\n  config [name]     print a provider's config dir and the files it owns (JSON)\n  reset-paths       print the config files a factory reset clears (one path per line)\n  handles           print the session IPC handle variables (one per line)\n  use <name>        preview and switch to another compositor (installs its package)\n  act <id> [args]   dispatch a window-manager action through the provider\n  session           print the provider's wayland-session desktop entry\n"))
 	fmt.Print(i18n.T("  outputs <file>    apply and persist a neutral output layout (JSON)\n"))
+	// added after the usage text was translated; a separate string keeps the existing translations matching
+	fmt.Print(i18n.T("  watch <kind>...   stream state frames as JSON when outputs, workspaces, ... change\n"))
 }
 
 func cmdWmStatus() {
@@ -130,6 +134,25 @@ func cmdWmState() {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(state); err != nil {
+		die("%v", err)
+	}
+}
+
+// cmdWmWatch streams the provider's state frames as newline-delimited JSON for
+// the kinds named (outputs, workspaces, focus, ...). It blocks until the stream
+// ends, so a caller reacts to events instead of polling.
+func cmdWmWatch(args []string) {
+	kinds := make([]wm.FrameKind, 0, len(args))
+	for _, a := range args {
+		kinds = append(kinds, wm.FrameKind(a))
+	}
+	enc := json.NewEncoder(os.Stdout)
+	err := wm.Open().WatchKinds(context.Background(), kinds, func(f wm.Frame) {
+		if encErr := enc.Encode(f); encErr != nil {
+			os.Exit(1)
+		}
+	})
+	if err != nil {
 		die("%v", err)
 	}
 }
@@ -302,8 +325,12 @@ func cmdWmUse(args []string) {
 		return
 	}
 	pkg := "ryoku-desktop-" + name
-	if err := targetPackageAvailability(name, pkg); err != nil {
-		die("%v", err)
+	deployed := deployedProvider(name)
+
+	if !deployed {
+    if err := targetPackageAvailability(name, pkg); err != nil {
+        die("%v", err)
+    }
 	}
 	store := filepath.Join(sys.ConfigHome(), "ryoku", "desktop.json")
 
@@ -321,7 +348,7 @@ func cmdWmUse(args []string) {
 	// picking the session at the greeter is the whole move. A package box installs
 	// the target first through the host package seam so the native package manager
 	// and its snapshot hooks handle the switch.
-	if deployedProvider(name) {
+	if deployed {
 		// A checkout box runs deployed trees, so the switch installs no package,
 		// but the leaf scripts (ryoku-monitor and friends) the target's config
 		// and autostart call by bare name live in ~/.local/bin, and deploy.sh
@@ -332,7 +359,7 @@ func cmdWmUse(args []string) {
 		if err := syncLeafScripts(name); err != nil {
 			die(i18n.T("switched to %s but could not lay its desktop scripts (%v); run `ryoku deploy` before logging out"), name, err)
 		}
-		fmt.Printf(i18n.T("%s is ready. Log out and pick %s at the greeter.\n"), name, name)
+		fmt.Printf(i18n.T("%s is ready.\n"), name)
 	} else {
 		// The variants are not exclusive, so the install leaves the outgoing
 		// compositor in place and "keep" means what it says. Older variants may
@@ -364,7 +391,7 @@ func cmdWmUse(args []string) {
 		if err := laySwitchConfig(); err != nil {
 			die(i18n.T("installed %s but could not lay its config down (%v); run `ryoku materialize` before logging out"), pkg, err)
 		}
-		fmt.Printf(i18n.T("Laid down the %s config; log out and pick %s at the greeter.\n"), name, name)
+		fmt.Printf(i18n.T("Laid down the %s config.\n"), name)
 	}
 
 	// Removing the outgoing compositor's packages is a second transaction on
@@ -373,6 +400,38 @@ func cmdWmUse(args []string) {
 	// runs whether the target came from a package or a checkout.
 	if !keepPrevious && active != "" && active != name {
 		removePreviousCompositor(active, name)
+	}
+
+	if os.Getenv("RYOKU_NIX_SYSTEM_BRIDGE") == "1" &&
+    os.Getenv("RYOKU_SDDM_ENABLED") == "1" {
+
+    helper := strings.TrimSpace(
+        os.Getenv("RYOKU_SDDM_SESSION_HELPER"),
+    )
+
+    if helper == "" {
+        fmt.Fprintln(
+            os.Stderr,
+            "ryoku: SDDM session helper path is not configured",
+        )
+        fmt.Printf("Select %s manually at the greeter.\n", name)
+
+    } else if _, err := sys.RunOut(helper, name); err != nil {
+        fmt.Fprintf(
+            os.Stderr,
+            "ryoku: compositor is ready, but SDDM could not be preselected: %v\n",
+            err,
+        )
+        fmt.Printf("Select %s manually at the greeter.\n", name)
+
+    } else {
+        fmt.Printf(
+            "SDDM will preselect %s at your next login. Log out to switch.\n",
+            name,
+        )
+    }
+	} else {
+    fmt.Printf("Log out and select %s at the greeter.\n", name)
 	}
 }
 

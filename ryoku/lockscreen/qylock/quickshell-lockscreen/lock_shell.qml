@@ -87,6 +87,12 @@ ShellRoot {
         }
     }
 
+    // a surface created after the reveal (an output that came back) would stay hidden
+    function revealLateSurface() {
+        if (surfaceAnnounced && lockSecure)
+            sddmShim.sddm.surfaceRevealed()
+    }
+
     function recoverUnlock(showFailure) {
         quitTimer.stop()
         authenticated = false
@@ -102,6 +108,14 @@ ShellRoot {
     SddmShim {
         id: sddmShim
         themePath: shellRoot.themePath
+    }
+
+    // fixed on purpose: it has to work with the desktop keybinds and the xkb
+    // switch option both off
+    readonly property string layoutShortcut: "Ctrl+Alt+Space"
+
+    LayoutFeed {
+        id: layoutFeed
     }
 
     // Publish and clear are serialized. Authentication is armed only after the
@@ -250,6 +264,8 @@ ShellRoot {
                 if (item.clockLocale !== undefined)
                     item.clockLocale = Qt.binding(() => TimeFormat.locale);
                 Qt.callLater(() => forceActiveFocus(Qt.OtherFocusReason));
+                if (shellRoot.surfaceAnnounced)
+                    Qt.callLater(shellRoot.revealLateSurface);
             }
             onStatusChanged: {
                 if (status === Loader.Error) {
@@ -374,23 +390,39 @@ ShellRoot {
                         // don't leak through to the desktop underneath.
                         PinchHandler { target: null }
                         WheelHandler { target: null }
-                        MouseArea {
+                        AuthRetryInput {
+                            id: authRetryInput
                             anchors.fill: parent
-                            acceptedButtons: Qt.AllButtons
-                            hoverEnabled: true
-                            onWheel: (wheel) => { wheel.accepted = true }
-                        }
+                            retryTarget: sddmShim
+                            passwordScope: themeSurface.item
+                            retryAllowed: sddmShim.authRetryInputAllowed
 
-                        Loader {
-                            id: themeSurface
-                            anchors.fill: parent
-                            focus: true
-                            sourceComponent: themeComponent
-                            onLoaded: lockSurface.focusTheme()
+                            Loader {
+                                id: themeSurface
+                                anchors.fill: parent
+                                focus: true
+                                sourceComponent: themeComponent
+                                onLoaded: lockSurface.focusTheme()
+                                // keyboards that return after a paused session never reactivate the window
+                                onActiveFocusChanged: {
+                                    if (!activeFocus)
+                                        lockSurface.focusTheme();
+                                }
+                            }
+                            Loader {
+                                anchors.fill: parent
+                                sourceComponent: fpOverlayComponent
+                            }
                         }
-                        Loader {
-                            anchors.fill: parent
-                            sourceComponent: fpOverlayComponent
+                        LayoutBadge {
+                            feed: layoutFeed
+                            accent: shellRoot.fpAccent
+                            shortcut: shellRoot.layoutShortcut
+                        }
+                        Shortcut {
+                            sequences: [shellRoot.layoutShortcut]
+                            context: Qt.WindowShortcut
+                            onActivated: layoutFeed.cycle()
                         }
                     }
                 }

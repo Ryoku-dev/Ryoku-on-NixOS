@@ -134,6 +134,8 @@ func shippedBinds() map[string]niriBind {
 		"resize.shorter":     {action: `set-window-height "-10%"`},
 		"resize.taller":      {action: `set-window-height "+10%"`},
 		"resize.resetHeight": {action: "reset-window-height"},
+		"resize.grow":        {action: "switch-preset-column-width", hint: "Step the column to its next preset width"},
+		"resize.shrink":      {action: "switch-preset-column-width-back", hint: "Step the column to its previous preset width"},
 
 		// Workspaces. The families carry {n}, the workspace number, substituted
 		// per expanded chord. niri references workspaces by flat index, so
@@ -185,7 +187,8 @@ func shippedBinds() map[string]niriBind {
 		"shell.launcher":          {action: spawnArgs("ryoku-shell", "launcher")},
 		"shell.ask":               {action: spawnArgs("ryoku-shell", "ask")},
 		"shell.rashin":            {action: spawnSh("ryoku-summon Rashin flock -n -o /tmp/rashin-app.lock rashin-app")},
-		"shell.cheatsheet":        {action: spawnSh("pkill -x -f 'qs -c keys' 2>/dev/null || " + wm.QmlEnv + " flock -n -o /tmp/ryoku-keys.lock qs -c keys")},
+		"shell.cheatsheet":        {action: spawnArgs("ryoku-shell", "cheatsheet")},
+		"shell.gamebar":           {action: spawnArgs("ryoku-shell", "gamebar"), ignoreInhibitor: true},
 		"shell.lock":              {action: spawnArgs("ryoku-shell", "lock")},
 		"shell.quicksettings":     {action: spawnArgs("ryoku-shell", "quicksettings"), ignoreInhibitor: true},
 		"shell.wallpaper":         {action: spawnArgs("ryogami", "wallpaper", "ui")},
@@ -196,7 +199,7 @@ func shippedBinds() map[string]niriBind {
 		"shell.visualizerOverlay": {action: spawnArgs("ryoku-shell", "visualizer-overlay")},
 		"shell.visualizerPlace":   {action: spawnArgs("ryoku-shell", "visualizer-place")},
 		"shell.voice":             {action: spawnArgs("ryoku-shell", "voice"), noRepeat: true},
-		"shell.settings":          {action: spawnArgs("ryoku-shell", "hub", "open")},
+		"shell.settings":          {action: spawnArgs("ryoku-shell", "settings")},
 		"shell.stageEditor":       {action: spawnArgs("ryoku-shell", "hub", "open", "widgets")},
 		"shell.screenshot":        {action: spawnSh(screenshotLaunchCommand(""))},
 		// Hyprland gives ryoshot three entry points, so niri gets the same three:
@@ -213,7 +216,8 @@ func shippedBinds() map[string]niriBind {
 		"media.volumeDown": {action: spawnArgs("ryoku-volume", "down")},
 		"media.mute":       {action: spawnArgs("wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"), noRepeat: true},
 		"media.micMute":    {action: spawnArgs("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"), noRepeat: true},
-		"media.play":       {action: spawnArgs("playerctl", "play-pause"), noRepeat: true},
+		"media.play":       {action: spawnArgs("ryoku-media", "play-pause"), noRepeat: true},
+		"media.pause":      {action: spawnArgs("ryoku-media", "pause"), noRepeat: true},
 		"media.next":       {action: spawnArgs("playerctl", "next")},
 		"media.prev":       {action: spawnArgs("playerctl", "previous")},
 

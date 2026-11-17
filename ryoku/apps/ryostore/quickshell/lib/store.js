@@ -105,7 +105,7 @@ function matchesQuery(item, query) {
     return terms.every(function(term) { return haystack.indexOf(term) !== -1; });
 }
 
-const subshellIds = ["gokko", "caelestia", "tansu", "python"];
+const subshellIds = ["gokko", "caelestia", "tansu", "python", "imi"];
 function isSubshell(item) {
     return Boolean(item && item.category === "barstyles"
         && subshellIds.indexOf(String(item.id || "")) >= 0);
@@ -408,7 +408,9 @@ function competingActionLabel(busyKey, actionKey, installStage) {
 }
 
 function secondaryAction(item) {
-    return (item && item.hasSettings && isInstalled(item)) ? "OPEN IN SETTINGS" : "";
+    if (!item || !item.hasSettings || !isInstalled(item))
+        return "";
+    return item.category === "rices" ? "OPEN IN RYOGAMI" : "OPEN IN SETTINGS";
 }
 
 function sortCategories(categories) {

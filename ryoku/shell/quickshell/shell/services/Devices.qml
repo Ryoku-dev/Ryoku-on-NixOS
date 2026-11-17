@@ -71,8 +71,10 @@ Singleton {
 
     function stopProbes(owner) {
         root.probeOwners = root.probeOwners.filter(candidate => candidate !== owner);
-        if (!root.probesWanted)
+        if (!root.probesWanted) {
             blRead.running = false;
+            root.forgetLevels();
+        }
         // ddcDetect keeps running: killing the walk left the answer unknown, so
         // the next open started it again, and every open after that.
     }
@@ -110,9 +112,142 @@ Singleton {
         ddcDetect.running = true;
     }
 
+    // Last level the monitor on each bus is known to hold (read or written),
+    // keyed by bus. Cleared when nobody has a brightness surface open so a
+    // change made with the monitor's own buttons is never mistaken for it.
+    property var ddcLevels: ({})
+    // Buses whose first read has finished, whether or not the monitor answered.
+    property var ddcSettled: ({})
+    property var ddcWrites: ({})
+    property var ddcReads: ({})
+    property bool ddcBusy: false
+
+    // One ddcutil at a time: overlapping i2c transactions on a bus fail the
+    // flock and land out of order. The latest value per bus wins, and it is
+    // written once the one in flight is done.
     function setBrightness(bus, pct) {
-        Quickshell.execDetached(["timeout", "3", "ddcutil", "setvcp", "10",
-            String(pct), "--bus", bus, "--noverify"]);
+        var key = String(bus);
+        var level = Math.max(0, Math.min(100, Math.round(pct)));
+        if (root.ddcLevels[key] === level)
+            return;
+        root.noteLevel(key, level);
+        root.ddcWrites[key] = level;
+        root.pumpDdc();
+    }
+
+    function readBrightness(bus) {
+        var key = String(bus);
+        if (key === "")
+            return;
+        root.ddcReads[key] = true;
+        root.pumpDdc();
+    }
+
+    function noteLevel(bus, level) {
+        var next = Object.assign({}, root.ddcLevels);
+        next[bus] = level;
+        root.ddcLevels = next;
+    }
+
+    function forgetLevels() {
+        root.ddcLevels = ({});
+        root.ddcSettled = ({});
+    }
+
+    function pumpDdc() {
+        if (root.ddcBusy)
+            return;
+        var key;
+        for (key in root.ddcWrites) {
+            var level = root.ddcWrites[key];
+            delete root.ddcWrites[key];
+            root.runDdc(key, true, level);
+            return;
+        }
+        for (key in root.ddcReads) {
+            delete root.ddcReads[key];
+            root.runDdc(key, false, 0);
+            return;
+        }
+    }
+
+    function runDdc(bus, write, level) {
+        root.ddcBusy = true;
+        ddcJob.createObject(root, { bus: bus, write: write, level: level });
+    }
+
+    function ddcDone(bus, write, ok, text) {
+        if (write) {
+            if (!ok) {
+                var next = Object.assign({}, root.ddcLevels);
+                delete next[bus];
+                root.ddcLevels = next;
+                if (root.ddcWrites[bus] === undefined)
+                    root.ddcReads[bus] = true;
+            }
+        } else {
+            var seen = Object.assign({}, root.ddcSettled);
+            seen[bus] = true;
+            root.ddcSettled = seen;
+            var value = root.parseBrightness(text);
+            if (ok && value >= 0 && root.ddcWrites[bus] === undefined)
+                root.noteLevel(bus, value);
+        }
+        root.ddcBusy = false;
+        root.pumpDdc();
+    }
+
+    Component {
+        id: ddcJob
+
+        Process {
+            id: job
+
+            property string bus: ""
+            property bool write: false
+            property int level: 0
+            property int code: -2
+            property bool streamed: false
+            property bool settled: false
+            property string out: ""
+            // a process that never started reports neither exit nor stream
+            property Timer giveUp: Timer {
+                interval: 4000
+                running: true
+                onTriggered: job.settle()
+            }
+
+            command: job.write
+                ? ["timeout", "3", "ddcutil", "setvcp", "10", String(job.level), "--bus", job.bus, "--noverify"]
+                : ["timeout", "3", "ddcutil", "getvcp", "10", "--brief", "--bus", job.bus]
+            running: true
+
+            function settle() {
+                if (job.settled)
+                    return;
+                job.settled = true;
+                job.giveUp.stop();
+                root.ddcDone(job.bus, job.write, job.code === 0, job.out);
+                job.destroy(1000);
+            }
+
+            function finishIfDone() {
+                if (job.code !== -2 && job.streamed)
+                    job.settle();
+            }
+
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    job.out = this.text;
+                    job.streamed = true;
+                    job.finishIfDone();
+                }
+            }
+            onExited: exitCode => {
+                job.code = exitCode;
+                job.finishIfDone();
+            }
+        }
     }
 
     // pull current brightness % out of a `ddcutil getvcp --brief` line. -1 = none.
@@ -146,8 +281,10 @@ Singleton {
         // internal panel. brightnessctl's own default pick lands on a phantom
         // nvidia_*/acpi_video device on a laptop with a discrete GPU, and the
         // write then succeeds against a device that changes nothing (#221).
+        // With no backlight at all the selector prints nothing, and the class
+        // keeps brightnessctl off its fallback pick, a keyboard LED.
         Quickshell.execDetached(["bash", "-c",
-            "BL=$(ryoku-hw-backlight 2>/dev/null); brightnessctl ${BL:+-d \"$BL\"} set \"$1%\" >/dev/null 2>&1",
+            "BL=$(ryoku-hw-backlight 2>/dev/null); brightnessctl -c backlight ${BL:+-d \"$BL\"} set \"$1%\" >/dev/null 2>&1",
             "_", String(p)]);
     }
 
@@ -199,7 +336,7 @@ Singleton {
 
     Process {
         id: blRead
-        command: ["bash", "-c", "BL=$(ryoku-hw-backlight 2>/dev/null); brightnessctl ${BL:+-d \"$BL\"} -m 2>/dev/null | awk -F, 'NR==1{print substr($4,1,length($4)-1)}'"]
+        command: ["bash", "-c", "BL=$(ryoku-hw-backlight 2>/dev/null); brightnessctl -c backlight ${BL:+-d \"$BL\"} -m 2>/dev/null | awk -F, 'NR==1{print substr($4,1,length($4)-1)}'"]
         running: false
         stdout: StdioCollector {
             onStreamFinished: {

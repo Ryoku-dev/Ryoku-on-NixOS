@@ -1,0 +1,56 @@
+name: NixOS first boot
+
+# A QML change can add an import that ryoku-shell.service cannot resolve on
+# NixOS, which nix-iso.yml (module, installer and updater paths) never sees.
+# These checks only evaluate the default install and fetch the Qt packages on
+# the shell's import path; they build no desktop and no system.
+on:
+  push:
+    branches:
+      - main
+      - unstable-dev
+    paths:
+      - '**/*.qml'
+      - '**/qmldir'
+      - 'nix/tests/firstboot-*'
+      - 'nix/tests/test-firstboot-*'
+      - '.github/workflows/nix-firstboot.yml'
+  pull_request:
+    paths:
+      - '**/*.qml'
+      - '**/qmldir'
+      - 'nix/tests/firstboot-*'
+      - 'nix/tests/test-firstboot-*'
+      - '.github/workflows/nix-firstboot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-firstboot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firstboot:
+    name: First-boot session checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+
+      - name: Run first-boot checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix build --no-link -L \
+            .#checks.x86_64-linux.ryoku-firstboot-session \
+            .#checks.x86_64-linux.ryoku-firstboot-greeter-guard \
+            .#checks.x86_64-linux.ryoku-firstboot-qml-imports

@@ -59,7 +59,7 @@ func (p barProvider) Load(ctx context.Context, refresh bool) ([]Item, SourceStat
 	active := p.activeStyle()
 	items := builtinBarStyles()
 	for i := range items {
-		items[i].Active = items[i].ID != "sumi" && items[i].ID == active
+		items[i].Active = items[i].Installed && items[i].ID != "sumi" && items[i].ID == active
 	}
 
 	entries, state, registryErr := loadProductRegistry(ctx, p.cache, "barstyles", refresh)
@@ -148,7 +148,7 @@ func mergeBuiltinBarStylePresentation(item *Item, base string, entry ProductEntr
 }
 
 func builtinBarStyles() []Item {
-	return []Item{{
+	items := []Item{{
 		ID: "orpheus", Category: "barstyles", Name: "Orpheus",
 		Summary:     "Liquid wave",
 		Description: "A liquid top bar that hugs what it shows, ripples along its whole edge when music plays, and grows each group into a card.",
@@ -184,13 +184,6 @@ func builtinBarStyles() []Item {
 		Installed:   true,
 		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "light"},
 	}, {
-		ID: "iris", Category: "barstyles", Name: "Shima",
-		Summary:     "Based on iNiR by snowarch",
-		Description: "An island on any screen edge that grows into whatever you clicked: morphing glass, bubbles, a dock, a studio and its own settings.",
-		Tags:        []string{"island", "frame", "built-in"},
-		Installed:   true,
-		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
-	}, {
 		ID: "python", Category: "barstyles", Name: "Python",
 		Summary:     "Based on Serpantinum by ilyamiro",
 		Description: "Serpantinum's orientation-aware bar, liquid-glass stage, popups, quick actions, dock design, settings guide and desktop face library on Ryoku's shared services.",
@@ -205,6 +198,7 @@ func builtinBarStyles() []Item {
 		Installed:   true,
 		Metadata:    map[string]any{"scene": "Scene.qml", "core": true, "resourceTier": "heavy"},
 	}}
+	return append(items, shimaItem())
 }
 
 func barStyleResourceTier(item Item) string {
@@ -261,7 +255,8 @@ func snapshotStaleBuiltins(data []byte) bool {
 		}
 		seen[it.ID] = true
 		if it.Name != want.Name || it.Summary != want.Summary || it.Description != want.Description ||
-			barStyleResourceTier(it) != barStyleResourceTier(want) {
+			barStyleResourceTier(it) != barStyleResourceTier(want) ||
+			(it.ID == "iris" && (it.Installed != want.Installed || it.UpdateAvailable != want.UpdateAvailable || it.Version != want.Version || it.InstalledVersion != want.InstalledVersion || it.Author != want.Author || it.Art != want.Art)) {
 			return true
 		}
 	}
@@ -275,7 +270,10 @@ func snapshotStaleBuiltins(data []byte) bool {
 }
 
 func (p barProvider) Install(ctx context.Context, id string) error {
-	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
+	if id == "iris" {
+		return installShima(ctx)
+	}
+	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "python" || id == "nomarchy" {
 		return fmt.Errorf("the built-in %s bar style is already installed", id)
 	}
 	reportProgress(ctx, "download", 0, 0)
@@ -291,7 +289,10 @@ func (p barProvider) Install(ctx context.Context, id string) error {
 }
 
 func (p barProvider) Remove(ctx context.Context, id string) error {
-	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "iris" || id == "python" || id == "nomarchy" {
+	if id == "iris" {
+		return removeShima(ctx)
+	}
+	if id == "sumi" || id == "qsbar" || id == "chroma" || id == "orpheus" || id == "kairos" || id == "python" || id == "nomarchy" {
 		return fmt.Errorf("the built-in %s bar style is not removable", id)
 	}
 	return removeProduct(ctx, "barstyles", id)

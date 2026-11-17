@@ -58,7 +58,7 @@ func stubRetiredCompositor(t *testing.T, installed map[string]bool) (*[][]string
 
 func TestReconcileRetiredCompositorSwapsVariantBeforeCleanup(t *testing.T) {
 	if wm.RetiredCompositor().VariantPackage == "" {
-		t.Skip("NixOS keeps MangoWM supported; no compositor is retired")
+		t.Skip("no compositor is retired on NixOS")
 	}
 	legacy := wm.RetiredCompositor()
 	target := "ryoku-desktop-" + wm.ProviderNiri
@@ -102,7 +102,7 @@ func TestReconcileRetiredCompositorSwapsVariantBeforeCleanup(t *testing.T) {
 
 func TestReconcileRetiredCompositorDefersRemovalForLiveSession(t *testing.T) {
 	if wm.RetiredCompositor().VariantPackage == "" {
-		t.Skip("NixOS keeps MangoWM supported; no compositor is retired")
+		t.Skip("no compositor is retired on NixOS")
 	}
 	legacy := wm.RetiredCompositor()
 	target := "ryoku-desktop-" + wm.ProviderNiri
