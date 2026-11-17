@@ -39,8 +39,12 @@ your library, settings and sign-ins carry over.
 Once the Ryoku team publishes a tested update to the Hyperion branch, run:
 
 ```bash
-ryoku update
+ryoku-nix-update update
 ```
+
+On installations that include the NixOS CLI bridge, `ryoku update` is an
+alias for the same operation. Older Hyperion builds may launch the Arch-style
+updater instead, so use the explicit NixOS command for the first update.
 
 This follows the Hyperion branch already selected in `/etc/nixos`, updates
 its locked Ryoku input, builds and switches the NixOS generation, and restores

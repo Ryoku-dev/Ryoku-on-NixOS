@@ -179,7 +179,14 @@
 
       # The NixOS bridge must take precedence over upstream helpers with the
       # same executable names.
+      hyperionNixCliBridge = import ./nix/packages/hyperion-cli-bridge.nix {
+        inherit pkgs;
+        upstreamCli = hyperionRyoku.cli;
+        nixUpdate = ryoku.nixUpdate;
+      };
+
       hyperionNixosBridges = [
+        hyperionNixCliBridge
         ryoku.nixosSystemBridge
         ryoku.nixUpdate
       ];
@@ -709,6 +716,19 @@
           fullBundle = ryokuHyperionNixosBundle;
           niriBundle = ryokuHyperionNiriNixosBundle;
         };
+
+        ryoku-hyperion-nix-update-cli = pkgs.runCommand "ryoku-hyperion-nix-update-cli-check" { } ''
+          cli=${ryokuHyperionNiriNixosBundle}/bin/ryoku
+          test -x "$cli"
+          grep -q '${ryoku.nixUpdate}/bin/ryoku-nix-update update' "$(readlink -f "$cli")"
+          if "$cli" update --help > result 2>&1; then
+            exit 1
+          fi
+          grep -q 'NixOS takes no options' result
+          "$cli" version > version
+          test -s version
+          touch "$out"
+        '';
 
         # The default install's login sessions, read from its evaluated config.
         ryoku-firstboot-session = import ./nix/tests/firstboot-session.nix {
