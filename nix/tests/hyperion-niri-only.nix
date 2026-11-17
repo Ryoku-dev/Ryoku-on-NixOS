@@ -66,7 +66,7 @@ let
     config.environment.etc."ryoku/nix-integration.json".text);
 
   desktopData = hyperionPackages.ryoku-desktop-data;
-  ryogami = hyperionPackages.ryoku-ryogami;
+  ryogami = ryokuPackages.ryoku-hyperion-ryogami;
 
   # Hyperion's Ryogami and desktop data, not the legacy NixOS builds.
   usesHyperionData = config:

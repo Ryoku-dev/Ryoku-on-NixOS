@@ -3,6 +3,7 @@
 {
   pkgs,
   hyperionRyoku,
+  hyperionRyogami,
   hyperionOptionalApps,
   hyperionRetired,
   hyperionPackages,
@@ -45,7 +46,9 @@ let
   without = drop: lib.filter (p: !(lib.elem (out p) (outs drop)));
 
   # Upstream's bundle without the apps RyoMarket manages and retired ones.
-  expectedFull = without (hyperionOptionalApps ++ hyperionRetired) upstreamPaths;
+  expectedFull = map
+    (p: if out p == out hyperionRyoku.ryogami then hyperionRyogami else p)
+    (without (hyperionOptionalApps ++ hyperionRetired) upstreamPaths);
 
   # Core shell, CLI, Hub, Ryogami, Niri and the core v2 apps.
   required = with hyperionRyoku; [
@@ -57,7 +60,6 @@ let
     helpers
     paletteBridge
     wmNiri
-    ryogami
     rashin
     ryostore
     livewall
@@ -88,5 +90,9 @@ assert lib.all (p: !(has fullComponents p) && !(has niriComponents p))
 assert !(has niriPaths hyperionRyoku.wmHyprland);
 assert !(has niriPaths hyperionRyoku.hyprPlugins);
 assert lib.all (has niriComponents) required;
+assert has niriComponents hyperionRyogami;
+assert !(has niriComponents hyperionRyoku.ryogami);
+assert has fullComponents hyperionRyogami;
+assert !(has fullComponents hyperionRyoku.ryogami);
 
 pkgs.writeText "ryoku-hyperion-bundle-provenance-check" "ok\n"
