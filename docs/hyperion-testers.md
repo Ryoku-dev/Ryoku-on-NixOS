@@ -36,15 +36,29 @@ your library, settings and sign-ins carry over.
 
 ## Update an existing Hyperion installation
 
-Once the Ryoku team publishes a tested update to the Hyperion branch, run:
+Once the Ryoku team publishes a tested update to the Hyperion branch, use
+the **public bootstrap** command. This also works when an older installation
+still has an invitation-gated `ryoku-v2` or lacks the `update` subcommand:
 
 ```bash
-ryoku-nix-update update
+nix run 'github:Ryoku-dev/Ryoku-on-NixOS/feature/hyperion-v2-nixos?dir=nix/bootstrap' -- update
 ```
 
-Once the NixOS CLI routing fix is installed, `ryoku update` also uses this
-backend. Older Hyperion builds can still launch the Arch updater, so use the
-explicit command for the first upgrade.
+After that revision is installed, the shorter `ryoku-v2 update` is available.
+`ryoku-nix-update update` also works if it is already installed.
+
+`update` refuses to switch channels. On a machine not yet tracking Hyperion,
+use `enter` or `slim` instead. `enter` does nothing when the system already
+tracks Hyperion, rather than rebuilding the current configuration.
+
+**Old invitation error:** No invitation or organisation membership is needed.
+If an old `ryoku-v2 enter` prints an `authorize` instruction, use the public
+bootstrap command above to update your existing Hyperion installation. Running
+the current bootstrap with `-- authorize` prints migration guidance instead
+of prompting for a code. Check the tracked channel with `ryoku-v2 status`.
+
+If `ryoku update` on an older Hyperion build still launches the Arch updater,
+use the explicit public bootstrap command above.
 
 This follows the Hyperion branch already selected in `/etc/nixos`, updates
 its locked Ryoku input, builds and switches the NixOS generation, and restores

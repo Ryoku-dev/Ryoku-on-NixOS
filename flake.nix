@@ -923,8 +923,11 @@
           { nativeBuildInputs = [ pkgs.python3 ]; } ''
             cp -r ${./nix/scripts} scripts
             cp -r ${./nix/tests} tests
-            mkdir iso-configs && cp ${./nix/iso-configs/ryoku.nix} iso-configs/ryoku.nix
+            mkdir -p bootstrap iso-configs
+            cp ${./nix/bootstrap/package.nix} bootstrap/package.nix
+            cp ${./nix/iso-configs/ryoku.nix} iso-configs/ryoku.nix
             python3 tests/test-ryoku-nix-track-edit.py
+            python3 tests/test-hyperion-bootstrap-recovery.py
             touch "$out"
           '';
 

@@ -24,7 +24,7 @@
         ryoku-v2 = {
           type = "app";
           program = "${ryokuV2}/bin/ryoku-v2";
-          meta.description = "Authorize and enter Ryoku Hyperion on NixOS";
+          meta.description = "Enter or update Ryoku Hyperion on NixOS";
         };
         default = ryoku-v2;
       };
