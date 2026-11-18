@@ -186,8 +186,69 @@
       # Upstream's bundle lists store path strings, so compare by path.
       withoutPaths = drop: builtins.filter
         (p: !(builtins.elem (toString p) (map toString drop)));
+
+      # Port af621bd5's deployed-provider switch and NixOS session discovery
+      # into the pinned Hyperion binaries, including their vendored WM seam.
+      hyperionCli = hyperionRyoku.cli.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          ./nix/patches/hyperion-wm-switch-nixos.patch
+          ./nix/patches/hyperion-wm-sessions-nixos.patch
+        ];
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          RYOKU_TEST_CLI="$PWD/ryoku" \
+            bash ${./nix/tests/test-hyperion-wm-switch.sh}
+          runHook postCheck
+        '';
+      });
+
+      # Portable upstream fix: listing products must not wait for a legacy
+      # install to download. Explicit shells-require --install still migrates.
+      hyperionRyostore = hyperionRyoku.ryostore.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          ./nix/patches/hyperion-ryostore-catalog-migration.patch
+          ./nix/patches/hyperion-ryostore-license.patch
+        ];
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          go test -run 'Test(ShellCatalog|Legacy|ModifiedLegacy|ShellsRequire|ProductEntry)' .
+          runHook postCheck
+        '';
+      });
+
+      # Keep Hyperion's prompt/cancellation behavior, but activate SDDM through
+      # the NixOS helper instead of re-executing the mutable-host installer.
+      hyperionHub = hyperionRyoku.hub.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          ./nix/patches/hyperion-wm-sessions-nixos.patch
+        ];
+        postPatch = (old.postPatch or "") + ''
+          substituteInPlace lock.go \
+            --replace-fail 'exec.Command("pkexec", selfExe(), "lock", "apply-greeter", slug, strconv.FormatBool(clock24h))' \
+              'exec.Command("pkexec", "/run/current-system/sw/bin/ryoku-sddm-theme-apply", slug, strconv.FormatBool(clock24h))'
+          substituteInPlace lock_test.go \
+            --replace-fail '#!/bin/sh' '#!${hyperionPkgs.runtimeShell}' \
+            --replace-fail 'lock apply-greeter clockwork/tape false' \
+              '/run/current-system/sw/bin/ryoku-sddm-theme-apply clockwork/tape false'
+        '';
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          go test -mod=vendor -run '^TestSetLockSkin' .
+          RYOKU_TEST_CLI=${hyperionCli}/bin/.ryoku-wrapped \
+            RYOKU_TEST_HUB="$PWD/ryoku-hub" \
+            bash ${./nix/tests/test-hyperion-wm-switch.sh}
+          runHook postCheck
+        '';
+      });
+
       hyperionComponents = map
-        (p: if toString p == toString hyperionRyoku.ryogami then hyperionRyogami else p)
+        (p: if toString p == toString hyperionRyoku.ryogami then hyperionRyogami
+            else if toString p == toString hyperionRyoku.cli then hyperionCli
+            else if toString p == toString hyperionRyoku.ryostore then hyperionRyostore
+            else if toString p == toString hyperionRyoku.hub then hyperionHub else p)
         (withoutPaths (hyperionOptionalApps ++ hyperionRetired) hyperionRyoku.bundle.paths);
       hyperionNiriOnlyComponents =
         withoutPaths [ hyperionRyoku.wmHyprland ] hyperionComponents;
@@ -248,8 +309,8 @@
           hyperion = true;
           userQml = hyperionUserQml;
           ryoku = ryoku // {
-            cli = hyperionRyoku.cli;
-            hub = hyperionRyoku.hub;
+            cli = hyperionCli;
+            hub = hyperionHub;
             desktopData = hyperionRyoku.desktopData;
             qml = hyperionQmlRuntime;
             wmNiri = hyperionRyoku.wmNiri;
@@ -372,13 +433,16 @@
         ryoku-shima = ryokuShima;
         ryoku-v2 = ryokuV2;
         ryoku-hyperion-ryogami = hyperionRyogami;
+        ryoku-hyperion-hub = hyperionHub;
+        ryoku-hyperion-cli = hyperionCli;
+        ryoku-hyperion-ryostore = hyperionRyostore;
         ryoku-hyperion-qml-runtime = hyperionQmlRuntime;
         ryoku-hyperion-user-qml = hyperionUserQml;
         ryoku-hyperion-materialize = hyperionMaterializer;
         ryoku-hyperion-niri-materialize = hyperionNiriMaterializer;
         ryomarket-hyperion = ryomarket.packages.${system}.ryomarket;
         ryotunes = hyperionRyotunes;
-        ryostore = hyperionRyoku.ryostore;
+        ryostore = hyperionRyostore;
         ryoport = hyperionRyoportPackage;
         ryomanager = hyperionRyoku.ryomanager;
         waifu2x-ncnn-vulkan = hyperionRyoku.waifu2x;
@@ -742,7 +806,7 @@
         '';
 
         ryoku-hyperion-bundle-provenance = import ./nix/tests/hyperion-bundle-provenance.nix {
-          inherit pkgs hyperionRyoku hyperionRyogami hyperionOptionalApps hyperionRetired;
+          inherit pkgs hyperionRyoku hyperionRyogami hyperionHub hyperionCli hyperionRyostore hyperionOptionalApps hyperionRetired;
           hyperionPackages = ryokuHyperion.packages.${system};
           bridges = hyperionNixosBridges;
           fullBundle = ryokuHyperionNixosBundle;
@@ -1208,7 +1272,7 @@
         };
         ryoku-sddm-theme-apply = pkgs.runCommand
           "ryoku-sddm-theme-apply-check"
-          { nativeBuildInputs = [ pkgs.coreutils pkgs.findutils ]; }
+          { nativeBuildInputs = [ pkgs.coreutils pkgs.findutils pkgs.gawk ]; }
           ''
             RYOKU_PATH=${self} bash ${./nix/tests/test-sddm-theme-apply.sh}
 

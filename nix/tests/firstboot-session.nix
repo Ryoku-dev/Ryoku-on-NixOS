@@ -28,8 +28,15 @@ let
 
   sessionNames = lib.concatMap (p: p.providedSessions or [ ]) ryokuSessions;
 
+  hyprlandLaunchProblems = pkg:
+    lib.optional
+      (builtins.elem "ryoku-hyprland" (pkg.providedSessions or [ ])
+        && !(lib.hasInfix "/bin/start-hyprland \"$@\"" (pkg.buildCommand or "")))
+      "${pkg.name}: Hyprland must start through its packaged start-hyprland launcher";
+
   problems =
     lib.concatMap execProblems ryokuSessions
+    ++ lib.concatMap hyprlandLaunchProblems ryokuSessions
     ++ lib.optional
       (sessionNames != [ "ryoku-hyprland" "ryoku-niri" ])
       "Ryoku session entries changed: ${builtins.toJSON sessionNames}"

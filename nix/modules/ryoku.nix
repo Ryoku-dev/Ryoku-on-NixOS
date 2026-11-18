@@ -219,7 +219,7 @@ export PATH="${lib.makeBinPath [
   pkgs.systemd
 ]}:$PATH"
 
-exec ${ryokuHyprland}/bin/Hyprland "$@"
+exec ${ryokuHyprland}/bin/start-hyprland "$@"
 EOF
 
     chmod 0755 "$out/bin/ryoku-hyprland-session"
@@ -418,11 +418,23 @@ EOF
   # Only the selected theme payload is mutable.
   ryokuSddmStateDir = "/var/lib/ryoku/sddm-theme";
 
+  ryokuGreeterInstaller = pkgs.runCommand "ryoku-greeter-theme-installer" {
+    nativeBuildInputs = [ pkgs.makeWrapper ];
+  } ''
+    mkdir -p "$out/libexec"
+    cp -r ${ryokuDesktopData}/share/ryoku/lockscreen/qylock/sddm-host "$out/libexec/sddm-host"
+    chmod -R u+w "$out/libexec/sddm-host"
+    patchShebangs "$out/libexec/sddm-host/install-greeter-theme"
+    wrapProgram "$out/libexec/sddm-host/install-greeter-theme" \
+      --prefix PATH : ${lib.makeBinPath [ pkgs.coreutils pkgs.gawk ]}
+  '';
+
   ryokuSddmThemeApply = pkgs.writeShellScriptBin "ryoku-sddm-theme-apply"
     (builtins.replaceStrings
-      [ "#!/usr/bin/env bash\n" "@coreutils@" "@findutils@" "@getent@" "@flock@" "@setpriv@" "@stateDir@" ]
+      [ "#!/usr/bin/env bash\n" "@coreutils@" "@findutils@" "@getent@" "@flock@" "@setpriv@" "@stateDir@" "@installer@" ]
       [ "" "${pkgs.coreutils}/bin" "${pkgs.findutils}/bin" "${pkgs.getent}/bin/getent" "${pkgs.util-linux}/bin/flock"
-        "${pkgs.util-linux}/bin/setpriv" ryokuSddmStateDir ]
+        "${pkgs.util-linux}/bin/setpriv" ryokuSddmStateDir
+        "${ryokuGreeterInstaller}/libexec/sddm-host/install-greeter-theme" ]
       (builtins.readFile ../scripts/ryoku-sddm-theme-apply));
 
   # The path SDDM sees is immutable, while its payload lives in /var/lib.
@@ -1638,12 +1650,9 @@ in
         ${pkgs.coreutils}/bin/install -d -m 0755 /var/lib/ryoku
         ${pkgs.coreutils}/bin/rm -rf /var/lib/ryoku/sddm-theme
 
-        ${pkgs.coreutils}/bin/cp -a \
+        ${ryokuGreeterInstaller}/libexec/sddm-host/install-greeter-theme \
           ${ryokuDesktopData}/share/ryoku/lockscreen/qylock/themes/clockwork/orbital \
-          /var/lib/ryoku/sddm-theme
-
-        ${pkgs.coreutils}/bin/chown -R root:root /var/lib/ryoku/sddm-theme
-        ${pkgs.coreutils}/bin/chmod -R a+rX /var/lib/ryoku/sddm-theme
+          /var/lib/ryoku/sddm-theme true
       fi
     '';
 
@@ -2182,6 +2191,9 @@ in
         RYOKU_DOCKER_HOST_MANAGED = "1";
 
         RYOKU_NIX_SYSTEM_BRIDGE = "1";
+        RYOKU_SDDM_ENABLED = config.environment.sessionVariables.RYOKU_SDDM_ENABLED;
+        RYOKU_SDDM_SESSION_HELPER = config.environment.sessionVariables.RYOKU_SDDM_SESSION_HELPER;
+        RYOKU_SDDM_SESSION_DIR = config.environment.sessionVariables.RYOKU_SDDM_SESSION_DIR;
         RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";
         RYOKU_DEFAULT_BROWSER = if cfg.browser == null then "" else cfg.browser;
         RYOKU_NOMARCHY_SOURCE = lib.mkIf (!cfg.hyperionPackages.enable) ryokuNomarchySource;

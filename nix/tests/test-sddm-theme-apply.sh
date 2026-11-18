@@ -26,7 +26,8 @@ chmod +x "$tmp/bin/setpriv" "$tmp/bin/getent" "$tmp/bin/flock"
 sed -e '1d' \
   -e "s|@coreutils@|$cb|" -e "s|@findutils@|$fb|" \
   -e "s|@getent@|$tmp/bin/getent|" -e "s|@flock@|$tmp/bin/flock|" -e "s|@setpriv@|$tmp/bin/setpriv|" \
-  -e "s|@stateDir@|$tmp/state/sddm-theme|" "$script" > "$tmp/apply"
+  -e "s|@stateDir@|$tmp/state/sddm-theme|" \
+  -e "s|@installer@|$repo/ryoku/lockscreen/qylock/sddm-host/install-greeter-theme|" "$script" > "$tmp/apply"
 
 themes=$tmp/home/.local/share/qylock/themes
 secret=$tmp/root-only-secret
@@ -46,8 +47,15 @@ apply() { PKEXEC_UID=${UID_OVERRIDE:-1000} bash "$tmp/apply" "$@"; }
 fail() { printf 'test-sddm-theme-apply: FAIL: %s\n' "$*" >&2; exit 1; }
 
 apply good >/dev/null
-[ -f "$tmp/state/sddm-theme/Main.qml" ] && [ -f "$tmp/state/sddm-theme/sub/a.png" ] || fail "good skin not installed"
+[ -f "$tmp/state/sddm-theme/theme/Main.qml" ] && [ -f "$tmp/state/sddm-theme/theme/sub/a.png" ] || fail "good skin not installed"
+cmp "$repo/ryoku/lockscreen/qylock/sddm-host/Main.qml" "$tmp/state/sddm-theme/Main.qml" || fail "shared greeter host missing"
+grep -qx clock24h=true "$tmp/state/sddm-theme/theme.conf" || fail "default clock format missing"
 [ "$(stat -c %a "$tmp/state/sddm-theme")" = 755 ] || fail "theme dir mode"
+
+apply good false >/dev/null
+grep -qx clock24h=false "$tmp/state/sddm-theme/theme.conf" || fail "clock format not forwarded"
+if apply good invalid >/dev/null 2>&1; then fail "invalid clock format accepted"; fi
+if apply good true extra >/dev/null 2>&1; then fail "extra arguments accepted"; fi
 
 apply evil >/dev/null
 [ -f "$tmp/state/sddm-theme/Main.qml" ] || fail "evil skin Main.qml missing"
@@ -69,6 +77,11 @@ sed 's|"$coreutils/mv" --exchange -T|false|' "$tmp/apply" > "$tmp/apply-failmv"
 cmp -s "$tmp/apply" "$tmp/apply-failmv" && fail "fault injection did not apply"
 if PKEXEC_UID=1000 bash "$tmp/apply-failmv" good >/dev/null 2>&1; then fail "apply succeeded despite failed install"; fi
 [ -f "$tmp/state/sddm-theme/marker" ] || fail "previous theme lost on failed install"
+
+# A failure while assembling the shared host must also preserve the old theme.
+sed 's|^installer=.*|installer=/does-not-exist|' "$tmp/apply" > "$tmp/apply-failhost"
+if PKEXEC_UID=1000 bash "$tmp/apply-failhost" good >/dev/null 2>&1; then fail "failed host install accepted"; fi
+[ -f "$tmp/state/sddm-theme/marker" ] || fail "previous theme lost after failed host install"
 
 # Oversized skins are refused and leave the theme alone.
 mkdir -p "$themes/big"; echo qml > "$themes/big/Main.qml"

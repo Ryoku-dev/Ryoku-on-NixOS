@@ -1,0 +1,58 @@
+--- a/product_manifest.go
++++ b/product_manifest.go
+@@ -123,6 +123,7 @@
+ 	Version             string   `json:"version"`
+ 	Path                string   `json:"path"`
+ 	Author              string   `json:"author"`
++	License             string   `json:"license,omitempty"`
+ 	Summary             string   `json:"summary"`
+ 	Description         string   `json:"description"`
+ 	Tags                []string `json:"tags"`
+@@ -170,7 +171,7 @@
+ 		"icon": true, "hosts": true, "lastUpdated": true, "downloadPaused": true,
+ 		"downloadPauseReason": true, "windowManager": true, "windowManagerReason": true,
+ 		"packageManagers": true, "packageManagersReason": true, "upstream": true,
+-		"discord": true, "provides": true, "requiresQmlModules": true, "metadata": true,
++		"discord": true, "provides": true, "requiresQmlModules": true, "metadata": true, "license": true,
+ 	}
+ 	if err := strictJSONFields(data, allowed); err != nil {
+ 		return err
+--- a/product_registry.go
++++ b/product_registry.go
+@@ -74,7 +74,7 @@
+ 		Manifest: entry.Manifest, ManifestSHA256: entry.ManifestSHA256,
+ 		Screenshots: resolveAssets(base, entry.Path, entry.Screenshots),
+ 		Tags:        entry.Tags, Accent: entry.Accent, Surface: entry.Surface,
+-		Upstream: entry.Upstream, Discord: entry.Discord,
++		Upstream: entry.Upstream, Discord: entry.Discord, License: entry.License,
+ 		DownloadPaused: entry.DownloadPaused, DownloadPauseReason: entry.DownloadPauseReason,
+ 		RequiredWindowManager: entry.WindowManager, RequiredPackageManagers: entry.PackageManagers,
+ 		Metadata: itemMetadata(entry.Metadata),
+--- a/product_registry_test.go
++++ b/product_registry_test.go
+@@ -41,3 +41,25 @@
+ 		t.Errorf("discord = %q, want empty when the entry names none", lone.Discord)
+ 	}
+ }
++
++func TestProductEntryLicenseMetadata(t *testing.T) {
++	var entry ProductEntry
++	if err := json.Unmarshal([]byte(`{"id":"licensed","license":"GPL-3.0-only"}`), &entry); err != nil {
++		t.Fatal(err)
++	}
++	item, err := productEntryItem("", "barstyles", entry)
++	if err != nil || item.License != "GPL-3.0-only" {
++		t.Fatalf("license = %q, %v", item.License, err)
++	}
++	if err := json.Unmarshal([]byte(`{"id":"unlicensed"}`), &entry); err != nil || entry.License != "" {
++		t.Fatalf("missing license retained metadata: %#v, %v", entry, err)
++	}
++	for _, raw := range []string{
++		`{"license":42}`,
++		`{"license":"MIT","unexpected":true}`,
++	} {
++		if err := json.Unmarshal([]byte(raw), &entry); err == nil {
++			t.Fatalf("invalid metadata accepted: %s", raw)
++		}
++	}
++}

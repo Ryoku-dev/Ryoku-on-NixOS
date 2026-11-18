@@ -75,8 +75,16 @@ let
     && config.environment.sessionVariables.RYOKU_I18N_DIR == "${desktopData}/share/ryoku/i18n"
     && (shellEnv config).RYOKU_QYLOCK_BUNDLE == "${desktopData}/share/ryoku/lockscreen/qylock"
     && (integration config).configBase == "${desktopData}/share/ryoku/config";
+
+  switchEnvironment = config:
+    lib.all (key: (shellEnv config).${key} == config.environment.sessionVariables.${key}) [
+      "RYOKU_SDDM_ENABLED"
+      "RYOKU_SDDM_SESSION_HELPER"
+      "RYOKU_SDDM_SESSION_DIR"
+    ];
 in
 
+assert switchEnvironment hyperion && switchEnvironment niriOnly;
 assert failedAssertions hyperion == [ ];
 assert failedAssertions niriOnly == [ ];
 assert lib.any (lib.hasInfix "requires programs.ryoku.hyperionPackages.enable")

@@ -16,6 +16,7 @@ getent=@getent@
 flock=@flock@
 setpriv=@setpriv@
 state_dir=@stateDir@
+installer=@installer@
 
 # Upper bounds for a skin, enforced while reading it.
 max_files=4096
@@ -28,6 +29,12 @@ die() {
 }
 
 slug="${1:-}"
+clock24h="${2:-true}"
+[ "$#" -le 2 ] || die 2 "expected a skin slug and optional clock format"
+case "$clock24h" in
+  true | false) ;;
+  *) die 2 "clock format must be true or false" ;;
+esac
 case "$slug" in
   "" | /* | *".."*) die 2 "invalid skin slug: $slug" ;;
 esac
@@ -96,15 +103,19 @@ done <"$work/list"
 "$findutils/find" "$work/theme" -type d -exec "$coreutils/chmod" 0755 {} +
 "$findutils/find" "$work/theme" -type f -exec "$coreutils/chmod" 0644 {} +
 
+# The shared host owns cursor, focus and clock behavior. Only pass it the
+# private snapshot above; it must never read the user's tree as root.
+"$installer" "$work/theme" "$work/installed" "$clock24h"
+
 # Swap atomically (renameat2 RENAME_EXCHANGE) so SDDM never sees a missing
 # theme, even if this process is killed. The previous theme ends up in the
 # staging directory and is removed with it. Only the very first install has
 # nothing to exchange with.
 if [ -e "$state_dir" ] || [ -L "$state_dir" ]; then
-  "$coreutils/mv" --exchange -T -- "$work/theme" "$state_dir" ||
+  "$coreutils/mv" --exchange -T -- "$work/installed" "$state_dir" ||
     die 1 "could not install the new theme; previous theme kept"
 else
-  "$coreutils/mv" -T -- "$work/theme" "$state_dir"
+  "$coreutils/mv" -T -- "$work/installed" "$state_dir"
 fi
 
 printf 'Ryoku SDDM theme -> %s\n' "$slug"

@@ -1,0 +1,47 @@
+--- a/provider_shell_items.go
++++ b/provider_shell_items.go
+@@ -38,10 +38,8 @@
+ 
+ func (p shellItemProvider) Load(ctx context.Context, refresh bool) ([]Item, SourceState, error) {
+ 	official := p.cache.source == ""
+-	if official {
+-		// A failed migration is retried on the next load; shells-require reports it.
+-		_ = migrateLegacyShellProducts(ctx, p.cache)
+-	}
++	// Catalogue reads must not install or migrate products. The explicit
++	// shells-require --install path owns legacy migration and its downloads.
+ 	active := readShellSelections().BarStyle
+ 	items := []Item{}
+ 	seen := map[string]bool{}
+--- a/provider_shell_items_test.go
++++ b/provider_shell_items_test.go
+@@ -91,3 +91,29 @@
+ 		t.Fatalf("index active = %q", index.Active)
+ 	}
+ }
++
++func TestShellCatalogLeavesLegacyInstallsUntouched(t *testing.T) {
++	for _, category := range []string{"barstyles", "subshells"} {
++		t.Run(category, func(t *testing.T) {
++			f := newShellFixture(t)
++			f.addCatalogueItem(category, "obi", testShellManifest(), defaultShellFiles(), nil)
++			old := writeLegacyInstall(t, "obi")
++			f.writeConfig("shell.json", map[string]any{"barStyle": "obi"})
++
++			items, _, err := newShellItemProvider(category, f.cache()).Load(context.Background(), false)
++			if err != nil || len(items) == 0 {
++				t.Fatalf("catalogue = %#v, %v", items, err)
++			}
++			receipt, err := readReceipt("barstyles", "obi")
++			if err != nil || receipt.Shell != nil || receipt.Version != "0.9.0" {
++				t.Fatalf("catalogue migrated legacy receipt: %#v, %v", receipt, err)
++			}
++			if matches, err := destinationMatchesReceipt(old, receipt); err != nil || !matches {
++				t.Fatalf("catalogue changed legacy files: matches=%v, %v", matches, err)
++			}
++			if style := f.readConfig("shell.json")["barStyle"]; style != "obi" {
++				t.Fatalf("catalogue changed active bar: %v", style)
++			}
++		})
++	}
++}

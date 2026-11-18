@@ -48,6 +48,7 @@ STUB
 chmod +x "$tmp/bin/getent"
 sed -e '1d' -e "s|@coreutils@|$cb|" -e "s|@findutils@|$fb|" -e "s|@getent@|$tmp/bin/getent|" \
   -e "s|@flock@|$flock|" -e "s|@setpriv@|$setpriv|" -e "s|@stateDir@|$tmp/state/sddm-theme|" \
+  -e "s|@installer@|$repo/ryoku/lockscreen/qylock/sddm-host/install-greeter-theme|" \
   "$repo/nix/scripts/ryoku-sddm-theme-apply" > "$tmp/apply"
 t=$tmp/home/.local/share/qylock/themes/evil
 echo qml > "$t/Main.qml"; echo img > "$t/sub/a.png"

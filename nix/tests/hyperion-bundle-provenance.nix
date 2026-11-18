@@ -4,6 +4,9 @@
   pkgs,
   hyperionRyoku,
   hyperionRyogami,
+  hyperionHub,
+  hyperionCli,
+  hyperionRyostore,
   hyperionOptionalApps,
   hyperionRetired,
   hyperionPackages,
@@ -47,21 +50,21 @@ let
 
   # Upstream's bundle without the apps RyoMarket manages and retired ones.
   expectedFull = map
-    (p: if out p == out hyperionRyoku.ryogami then hyperionRyogami else p)
+    (p: if out p == out hyperionRyoku.ryogami then hyperionRyogami
+        else if out p == out hyperionRyoku.cli then hyperionCli
+        else if out p == out hyperionRyoku.ryostore then hyperionRyostore
+        else if out p == out hyperionRyoku.hub then hyperionHub else p)
     (without (hyperionOptionalApps ++ hyperionRetired) upstreamPaths);
 
   # Core shell, CLI, Hub, Ryogami, Niri and the core v2 apps.
   required = with hyperionRyoku; [
     shell
-    cli
-    hub
     qml
     desktopData
     helpers
     paletteBridge
     wmNiri
     rashin
-    ryostore
     livewall
     skwdPaper
   ];
@@ -94,5 +97,11 @@ assert has niriComponents hyperionRyogami;
 assert !(has niriComponents hyperionRyoku.ryogami);
 assert has fullComponents hyperionRyogami;
 assert !(has fullComponents hyperionRyoku.ryogami);
+assert has fullComponents hyperionHub && has niriComponents hyperionHub;
+assert !(has fullComponents hyperionRyoku.hub) && !(has niriComponents hyperionRyoku.hub);
+assert has fullComponents hyperionCli && has niriComponents hyperionCli;
+assert !(has fullComponents hyperionRyoku.cli) && !(has niriComponents hyperionRyoku.cli);
+assert has fullComponents hyperionRyostore && has niriComponents hyperionRyostore;
+assert !(has fullComponents hyperionRyoku.ryostore) && !(has niriComponents hyperionRyoku.ryostore);
 
 pkgs.writeText "ryoku-hyperion-bundle-provenance-check" "ok\n"
