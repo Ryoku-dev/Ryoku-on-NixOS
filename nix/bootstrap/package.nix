@@ -37,10 +37,41 @@ pkgs.writeShellApplication {
       fi
     }
 
+    tracked_channel() {
+      ryoku-nix-update status |
+        python3 -c 'import json, sys; channel = json.load(sys.stdin).get("channel"); sys.exit(2) if not isinstance(channel, str) or not channel else print(channel)'
+    }
+
     case "''${1:-}" in
+      authorize|check)
+        printf '%s\n' \
+          'Hyperion no longer requires an invitation or GitHub membership.' \
+          'First install: ryoku-v2 enter (or slim for Niri-only).' \
+          'Already on Hyperion: ryoku-v2 update'
+        ;;
       enter)
         require_nixos
+        channel="$(tracked_channel)" || {
+          printf '%s\n' 'ryoku-v2: cannot determine the current channel. No changes made.' >&2
+          exit 1
+        }
+        if [ "$channel" = "feature/hyperion-v2-nixos" ]; then
+          printf '%s\n' 'Already tracking Hyperion. Run ryoku-v2 update to install newer revisions.'
+          exit 0
+        fi
         exec ryoku-nix-update track hyperion
+        ;;
+      update)
+        require_nixos
+        channel="$(tracked_channel)" || {
+          printf '%s\n' 'ryoku-v2: cannot determine the current channel. No changes made.' >&2
+          exit 1
+        }
+        if [ "$channel" != "feature/hyperion-v2-nixos" ]; then
+          printf '%s\n' 'ryoku-v2: not tracking Hyperion. Use ryoku-v2 enter (or slim) first.' >&2
+          exit 1
+        fi
+        exec ryoku-nix-update update
         ;;
       slim)
         require_nixos
@@ -76,6 +107,7 @@ pkgs.writeShellApplication {
           "" \
           '  plan       show the /etc/nixos changes enter would make' \
           '  enter      switch this NixOS system to Hyperion' \
+          '  update     update an existing Hyperion installation' \
           '  slim       switch to Hyperion with the Niri-only desktop' \
           '  leave      switch back to the unstable channel' \
           '  status     show the tracked channel' >&2
