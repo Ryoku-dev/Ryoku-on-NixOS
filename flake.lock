@@ -457,11 +457,11 @@
         "skwdWall": "skwdWall"
       },
       "locked": {
-        "lastModified": 1794920925,
-        "narHash": "sha256-co+lT2lzPuIp1ZllpjkCDq2wkI+EzfPvfMK9WTNPVJM=",
+        "lastModified": 1794988032,
+        "narHash": "sha256-WeHbjsCe10oPJunXpfNQO75Vx9RNiqBXx8jc/mWGcmI=",
         "owner": "Ryoku-dev",
         "repo": "ryoku",
-        "rev": "5b85b90d46a3314160bc018756a1aa94d841443f",
+        "rev": "4eb387771505e752812f6aff6cf23460fd684043",
         "type": "github"
       },
       "original": {
