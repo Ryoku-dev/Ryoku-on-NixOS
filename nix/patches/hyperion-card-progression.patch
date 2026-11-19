@@ -1,9 +1,9 @@
 diff --git a/ryoku/hub/CARD-PROGRESSION.md b/ryoku/hub/CARD-PROGRESSION.md
 new file mode 100644
-index 00000000..e5535dc4
+index 00000000..3bfe1bf9
 --- /dev/null
 +++ b/ryoku/hub/CARD-PROGRESSION.md
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,259 @@
 +# Ryoku Profile Progression v4
 +
 +Ryoku's profile, achievements, and Points Shop are global to Ryoku, not tied
@@ -107,6 +107,54 @@ index 00000000..e5535dc4
 +A crash-triggered badge is intentionally deferred until a reliably verified
 +unexpected crash event is available. Ordinary restarts must not be mistaken
 +for a crash, and users should never be encouraged to crash Ryoku on purpose.
++
++## Collectible Archive and the Black Prism reward
++
++The Achievement Book uses `AchievementCard.qml`, with the original
++`ArchiveSeal` artwork on each card. Rarity affects the engraved edge,
++plate material, ornament and progress accent. Mastery gets a broader-cut
++engraved enclosure and Classified entries remain anonymous until earned.
++Category tabs scroll horizontally on compact windows, and turning a page
++resets the vertical scroll to the top.
++
++When an **earned** badge is manually claimed, `AchievementReveal.qml`
++provides a short, modal seal-unfurl and credit acknowledgement.
++Escape, the return button or the dark scrim dismiss the reveal.
++Animations are suppressed when `Lithic.reduceMotion` is set.
++
++Every objective with a measurable counter includes a live progress
++bar, with the correct numerator and requirement. Complex objectives
++retain their full description rather than inventing percentages.
++
++**Black Prism** is an original animated profile background earned for
++owning all **32** regular shop cosmetics, the same event as Complete
++Collection. It is not one of the purchasable items, has no points price,
++cannot be acquired through the shop API, and is never required for its
++own unlock condition. The reward remains secret until earned, then
++appears in the Points Shop with a free Equip action.
++
++The rendering is pure QML and static Canvas geometry with a slow
++rotating prismatic accent. Nothing runs in the background while Home
++is closed, and reduced motion leaves a still, readable scene. The shop's
++reward preview is always static to avoid offscreen animations.
++Old saves with all items already owned automatically gain the reward.
++Unfinished collections cannot retain an unequipped bonus via save edits.
++
++Balance refinements avoid paying twice for identical work:
++
++- Behind Every Door requires both 40 distinct Settings pages and
++  eight distinct Settings areas, rather than duplicating Cartographer.
++- Variety Show requires two distinct earned badge seals **and** three
++  different purchased shop art stickers simultaneously, rather than
++  duplicating Mosaic's five designs.
++- The Long Game secret requires 21 distinct days, instead of being an
++  identical 14-day copy of Habit Formed.
++
++These requirements are additive and possible using the existing
++Settings pages and cosmetic catalogue. Previously earned badges
++remain earned and claimed after migration, without clawing back rewards.
++The 30-distinct-day milestone still sets the earliest genuine endgame
++completion, and the progression system stays offline and cosmetic-only.
 +
 +## Validation and rollout
 +
@@ -445,10 +493,10 @@ index 8d680e52..e5062a31 100644
      readonly property bool builtInBeside: Rarity.bothGraphics([SysInfo.sysGpu, SysInfo.sysGpu2])
 diff --git a/ryoku/hub/quickshell/Singletons/Progression.qml b/ryoku/hub/quickshell/Singletons/Progression.qml
 new file mode 100644
-index 00000000..c48c29fe
+index 00000000..bca3994f
 --- /dev/null
 +++ b/ryoku/hub/quickshell/Singletons/Progression.qml
-@@ -0,0 +1,251 @@
+@@ -0,0 +1,254 @@
 +pragma Singleton
 +
 +import QtQuick
@@ -473,6 +521,9 @@ index 00000000..c48c29fe
 +    readonly property int balance: data.balance || 0
 +    readonly property var achievements: Model.achievements
 +    readonly property var cosmetics: Model.cosmetics
++    readonly property var completionScene: Model.completionScene
++    readonly property bool completionSceneUnlocked: Model.completionSceneUnlocked(root.data)
++    function progressInfoFor(id) { return Model.progressInfo(root.data, id); }
 +    readonly property var groups: Model.groups
 +    readonly property var rarityColours: Model.rarityColours
 +    readonly property int discoveredSecrets: Model.secretCount(root.data)
@@ -710,7 +761,7 @@ index 8894fef3..b21af52a 100644
  singleton Badge Badge.qml
 +singleton Progression Progression.qml
 diff --git a/ryoku/hub/quickshell/components/Home.qml b/ryoku/hub/quickshell/components/Home.qml
-index f91d7443..84d1d31c 100644
+index f91d7443..5aa2735a 100644
 --- a/ryoku/hub/quickshell/components/Home.qml
 +++ b/ryoku/hub/quickshell/components/Home.qml
 @@ -45,7 +45,8 @@ Item {
@@ -723,7 +774,7 @@ index f91d7443..84d1d31c 100644
      }
  
      // the profile's design, shared with the system card
-@@ -457,6 +458,79 @@ Item {
+@@ -457,6 +458,90 @@ Item {
              width: flick.width
              height: Math.max(flick.height, column.y + column.height + LithicTokens.space.s5 + (root.hub.noticeInset || 0))
  
@@ -747,13 +798,20 @@ index f91d7443..84d1d31c 100644
 +                }
 +                Rectangle {
 +                    anchors.fill: parent
-+                    visible: profileBackground.customImage === ""
++                    visible: profileBackground.customImage === "" &&
++                        profileBackground.chosen !== Progression.completionScene.id
 +                    color: profileBackground.chosen === "bg-blueprint" ? "#132335" :
 +                           profileBackground.chosen === "bg-ember" ? "#271a19" :
 +                           profileBackground.chosen === "bg-archive" ? "#27231d" :
 +                           profileBackground.chosen === "bg-obsidian" ? "#11171b" :
 +                           profileBackground.chosen === "bg-sutra" ? "#1f2225" :
 +                           profileBackground.chosen === "bg-signal" ? "#121b22" : "#1b1d23"
++                }
++                BlackPrism {
++                    anchors.fill: parent
++                    visible: profileBackground.chosen === Progression.completionScene.id &&
++                        profileBackground.customImage === ""
++                    live: root.shown && !root.preview
 +                }
 +                Image {
 +                    visible: profileBackground.customImage === "" && profileBackground.galleryArt !== ""
@@ -769,7 +827,9 @@ index f91d7443..84d1d31c 100644
 +                    opacity: 0.31
 +                }
 +                Repeater {
-+                    model: profileBackground.customImage !== "" ? 0 : Math.ceil(profileBackground.width / 62)
++                    model: profileBackground.customImage !== "" ||
++                           profileBackground.chosen === Progression.completionScene.id ? 0 :
++                           Math.ceil(profileBackground.width / 62)
 +                    delegate: Rectangle {
 +                        x: index * 62
 +                        width: 1
@@ -784,7 +844,9 @@ index f91d7443..84d1d31c 100644
 +                    }
 +                }
 +                Repeater {
-+                    model: profileBackground.customImage !== "" ? 0 : Math.ceil(profileBackground.height / 62)
++                    model: profileBackground.customImage !== "" ||
++                           profileBackground.chosen === Progression.completionScene.id ? 0 :
++                           Math.ceil(profileBackground.height / 62)
 +                    delegate: Rectangle {
 +                        y: index * 62
 +                        width: profileBackground.width
@@ -803,7 +865,7 @@ index f91d7443..84d1d31c 100644
              HoverHandler {
                  id: pointer
                  enabled: root.depthOn
-@@ -612,10 +686,127 @@ Item {
+@@ -612,10 +697,127 @@ Item {
                  }
              }
  
@@ -931,7 +993,7 @@ index f91d7443..84d1d31c 100644
                  visible: !root.preview
                  x: root.side + (root.hub.wide ? 0 : 40)
                  y: LithicTokens.space.s3
-@@ -642,7 +833,7 @@ Item {
+@@ -642,7 +844,7 @@ Item {
                  }
                  Plaque {
                      id: expandPlaque
@@ -940,7 +1002,7 @@ index f91d7443..84d1d31c 100644
                      anchors.rightMargin: LithicTokens.space.s2
                      anchors.verticalCenter: parent.verticalCenter
                      kind: "quiet"
-@@ -652,6 +843,30 @@ Item {
+@@ -652,6 +854,30 @@ Item {
                      accessibleName: I18n.tr("Show your system card large")
                      onClicked: root.expandCard()
                  }
@@ -971,7 +1033,7 @@ index f91d7443..84d1d31c 100644
                  Plaque {
                      id: binderPlaque
                      anchors.right: sharePlaque.left
-@@ -698,14 +913,23 @@ Item {
+@@ -698,14 +924,23 @@ Item {
                      kind: "quiet"
                      small: true
                      glyph: "edit"
@@ -998,7 +1060,7 @@ index f91d7443..84d1d31c 100644
                  // the near plane: a little with the pointer
                  transform: Translate { x: root.tiltX * 4; y: root.tiltY * 2 }
                  x: root.roomy && root.heroLeft ? plate.width - root.side - width : root.side
-@@ -727,6 +951,7 @@ Item {
+@@ -727,6 +962,7 @@ Item {
                          width: parent.width
                          text: root.f("text.name", SysInfo.sysUser)
                          typeRole: root.width >= 640 ? "name" : "sentence"
@@ -1006,7 +1068,7 @@ index f91d7443..84d1d31c 100644
                      }
                      Row {
                          spacing: LithicTokens.space.s3
-@@ -734,6 +959,7 @@ Item {
+@@ -734,6 +970,7 @@ Item {
                              anchors.baseline: clock.baseline
                              text: SysInfo.sysUser + "@" + SysInfo.sysHost
                              typeRole: "mono"
@@ -1014,7 +1076,7 @@ index f91d7443..84d1d31c 100644
                              inkRole: "fg2"
                          }
                          Label {
-@@ -744,11 +970,50 @@ Item {
+@@ -744,11 +981,50 @@ Item {
                              numeric: true
                          }
                      }
@@ -1065,6 +1127,411 @@ index f91d7443..84d1d31c 100644
                          inkRole: "fg2"
                          wrapMode: Text.Wrap
                          elide: Text.ElideNone
+diff --git a/ryoku/hub/quickshell/components/about/AchievementCard.qml b/ryoku/hub/quickshell/components/about/AchievementCard.qml
+new file mode 100644
+index 00000000..2d7be824
+--- /dev/null
++++ b/ryoku/hub/quickshell/components/about/AchievementCard.qml
+@@ -0,0 +1,229 @@
++import QtQuick
++import Lithic
++import Ryoku.Ui.Singletons
++import "../../Singletons"
++import ".."
++
++Item {
++    id: card
++
++    required property var badge
++    signal claimRequested(var badge)
++    signal featureRequested(string id)
++
++    readonly property bool earned: Progression.data.earned[badge.id] === true
++    readonly property bool claimed: Progression.data.claimed[badge.id] === true
++    readonly property bool mastery: badge.category === "Mastery"
++    readonly property bool classified: badge.category === "Classified"
++    readonly property var progress: Progression.progressInfoFor(badge.id)
++    readonly property color metal: Progression.rarityColours[badge.rarity] || Lithic.fg2
++    readonly property bool brilliant: badge.rarity === "holographic"
++    readonly property bool prestigious: mastery || classified
++    readonly property string status: claimed ? "ARCHIVED" : earned ? "READY TO CLAIM" : "UNDISCOVERED"
++    readonly property real cutSize: prestigious ? 22 : 12
++
++    implicitHeight: prestigious ? 314 : 294
++    clip: true
++
++    HoverHandler { id: hover; enabled: !Lithic.reduceMotion }
++
++    CutRect {
++        anchors.fill: parent
++        cut: card.cutSize
++        fill: card.prestigious ? Lithic.mix(Lithic.ground, card.metal, card.earned ? 0.12 : 0.055)
++            : Lithic.mix(Lithic.ground, Lithic.fg, card.earned ? 0.065 : 0.026)
++        strokeColor: card.earned ? card.metal : Lithic.mix(Lithic.ground, Lithic.fg, 0.22)
++        strokeWidth: card.prestigious ? 2 : 1
++    }
++
++    Rectangle {
++        x: 3
++        y: 30
++        width: card.earned ? 3 : 1
++        height: parent.height - 61
++        color: card.metal
++        opacity: card.earned ? 0.9 : 0.23
++    }
++
++    Rectangle {
++        x: 22
++        y: 36
++        width: parent.width - 44
++        height: 1
++        color: card.metal
++        opacity: card.prestigious ? 0.55 : 0.25
++    }
++
++    Rectangle {
++        x: 22
++        y: parent.height - 62
++        width: parent.width - 44
++        height: 1
++        color: card.metal
++        opacity: card.prestigious ? 0.6 : 0.22
++    }
++
++    Row {
++        x: 20
++        y: 10
++        width: parent.width - 40
++        spacing: 7
++
++        Label {
++            text: card.classified ? "DECRYPTED / 07" :
++                card.mastery ? "MASTERY / ARCHIVE" : "RYOKU / " + card.badge.category.toUpperCase()
++            typeRole: "monoSm"
++            ink: card.metal
++        }
++        Item { width: Math.max(0, parent.width - 260); height: 1 }
++        Label {
++            text: card.badge.rarity.toUpperCase()
++            typeRole: "monoSm"
++            ink: card.metal
++        }
++    }
++
++    Item {
++        id: insignia
++        x: 17
++        y: 50
++        width: card.prestigious ? 137 : 125
++        height: width
++
++        Rectangle {
++            visible: card.prestigious && card.earned
++            anchors.centerIn: parent
++            width: parent.width * 0.91
++            height: width
++            rotation: 45
++            color: "transparent"
++            border.color: card.metal
++            border.width: 1
++            opacity: card.brilliant ? 0.45 : 0.28
++        }
++
++        ArchiveSeal {
++            anchors.fill: parent
++            title: card.badge.title
++            sigil: card.badge.sigil
++            rarity: card.badge.rarity
++            category: card.badge.category
++            locked: !card.earned
++            animateFoil: card.earned && card.brilliant && card.visible &&
++                !Lithic.reduceMotion
++        }
++    }
++
++    Column {
++        x: insignia.x + insignia.width + 10
++        y: 54
++        width: Math.max(10, parent.width - x - 16)
++        spacing: 9
++
++        Label {
++            width: parent.width
++            text: card.badge.title
++            typeRole: "section"
++            wrapMode: Text.Wrap
++            elide: Text.ElideRight
++            maximumLineCount: 2
++        }
++        Label {
++            width: parent.width
++            text: card.status
++            typeRole: "monoSm"
++            ink: card.earned ? card.metal : Lithic.fg3
++            elide: Text.ElideRight
++        }
++        Label {
++            width: parent.width
++            text: "+" + card.badge.reward + " ◆"
++            typeRole: "mono"
++            ink: Lithic.gold
++        }
++    }
++
++    Column {
++        x: 21
++        y: 200
++        width: parent.width - 42
++        spacing: 8
++
++        Label {
++            width: parent.width
++            text: card.badge.detail
++            typeRole: "detail"
++            inkRole: card.earned ? "fg" : "fg2"
++            wrapMode: Text.Wrap
++            elide: Text.ElideRight
++            maximumLineCount: 2
++        }
++
++        Item {
++            width: parent.width
++            height: 24
++            visible: card.progress !== null && !card.earned
++
++            Row {
++                anchors.top: parent.top
++                width: parent.width
++                Label {
++                    text: card.progress ? card.progress.label : ""
++                    typeRole: "monoSm"
++                    ink: card.metal
++                }
++                Item { width: Math.max(0, parent.width - 200); height: 1 }
++                Label {
++                    text: card.progress ? card.progress.current + " / " + card.progress.total : ""
++                    typeRole: "monoSm"
++                    ink: card.metal
++                }
++            }
++            Rectangle {
++                anchors.bottom: parent.bottom
++                width: parent.width
++                height: 3
++                color: Lithic.mix(Lithic.ground, card.metal, 0.16)
++                Rectangle {
++                    width: parent.width * (card.progress ? card.progress.fraction : 0)
++                    height: parent.height
++                    color: card.metal
++                    Behavior on width {
++                        enabled: !Lithic.reduceMotion
++                        NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
++                    }
++                }
++            }
++        }
++    }
++
++    Row {
++        x: 20
++        y: parent.height - 52
++        width: parent.width - 40
++        spacing: 7
++
++        Label {
++            anchors.verticalCenter: parent.verticalCenter
++            text: card.claimed ? "IN YOUR ARCHIVE" : card.earned ? "REWARD AVAILABLE" : "CHALLENGE ACTIVE"
++            typeRole: "monoSm"
++            ink: card.earned ? card.metal : Lithic.fg3
++        }
++        Item { width: Math.max(0, parent.width - (card.claimed ? 300 : 270)); height: 1 }
++        Plaque {
++            small: true
++            kind: card.earned && !card.claimed ? "gold" : "quiet"
++            text: card.claimed ? "Claimed" : card.earned ? "Claim" : "Locked"
++            enabled: card.earned && !card.claimed
++            onClicked: card.claimRequested(card.badge)
++        }
++        Plaque {
++            visible: card.claimed
++            small: true
++            kind: Progression.featuredBadge === card.badge.id ? "gold" : "line"
++            text: Progression.featuredBadge === card.badge.id ? "Featured" : "Feature"
++            enabled: Progression.featuredBadge !== card.badge.id
++            onClicked: card.featureRequested(card.badge.id)
++        }
++    }
++}
+diff --git a/ryoku/hub/quickshell/components/about/AchievementReveal.qml b/ryoku/hub/quickshell/components/about/AchievementReveal.qml
+new file mode 100644
+index 00000000..d6437945
+--- /dev/null
++++ b/ryoku/hub/quickshell/components/about/AchievementReveal.qml
+@@ -0,0 +1,164 @@
++import QtQuick
++import Lithic
++import Ryoku.Ui.Singletons
++import "../../Singletons"
++import ".."
++
++FocusScope {
++    id: reveal
++
++    property var badge: null
++    property bool opened: false
++    property real burst: 0
++    readonly property color metal: badge ?
++        Progression.rarityColours[badge.rarity] || Lithic.gold : Lithic.gold
++
++    visible: opened
++    z: 400
++    focus: opened
++
++    function present(entry) {
++        if (!entry) return;
++        badge = entry;
++        burst = 0;
++        opened = true;
++        forceActiveFocus();
++        if (!Lithic.reduceMotion) entrance.restart();
++        else burst = 1;
++    }
++
++    function dismiss() {
++        opened = false;
++        badge = null;
++    }
++
++    Keys.onEscapePressed: event => {
++        reveal.dismiss();
++        event.accepted = true;
++    }
++
++    SequentialAnimation {
++        id: entrance
++        NumberAnimation {
++            target: reveal
++            property: "burst"
++            from: 0
++            to: 1
++            duration: 820
++            easing.type: Easing.OutCubic
++        }
++    }
++
++    Rectangle {
++        anchors.fill: parent
++        color: "#07090d"
++        opacity: 0.93
++        MouseArea {
++            anchors.fill: parent
++            onClicked: reveal.dismiss()
++        }
++    }
++
++    Item {
++        anchors.centerIn: parent
++        width: Math.min(parent.width - 32, 530)
++        height: Math.min(parent.height - 24, 585)
++        scale: Lithic.reduceMotion ? 1 : 0.87 + reveal.burst * 0.13
++        opacity: Lithic.reduceMotion ? 1 : Math.min(1, reveal.burst * 2)
++
++        CutRect {
++            anchors.fill: parent
++            cut: 30
++            fill: "#10131a"
++            strokeColor: reveal.metal
++            strokeWidth: 2
++        }
++
++        Repeater {
++            model: 4
++            delegate: Rectangle {
++                required property int index
++                width: parent.width * (0.30 + index * 0.14)
++                height: width
++                anchors.horizontalCenter: parent.horizontalCenter
++                y: 65 - index * 16
++                rotation: 45 + (Lithic.reduceMotion ? 0 : reveal.burst * (index % 2 ? -12 : 12))
++                color: "transparent"
++                border.color: reveal.metal
++                border.width: 1
++                opacity: 0.28 - index * 0.04
++            }
++        }
++
++        Column {
++            anchors.fill: parent
++            anchors.margins: 22
++            spacing: 12
++
++            Label {
++                anchors.horizontalCenter: parent.horizontalCenter
++                text: reveal.badge && reveal.badge.category === "Classified" ?
++                    "CLASSIFIED / DECRYPTED" :
++                    reveal.badge && reveal.badge.category === "Mastery" ?
++                    "MASTERY / ACHIEVED" : "THE ARCHIVE REMEMBERS"
++                typeRole: "mono"
++                ink: reveal.metal
++            }
++            Label {
++                anchors.horizontalCenter: parent.horizontalCenter
++                text: "ACHIEVEMENT UNLOCKED"
++                typeRole: "monoSm"
++                inkRole: "fg2"
++            }
++
++            Item {
++                width: parent.width
++                height: Math.min(245, Math.max(150, reveal.height * 0.4))
++
++                ArchiveSeal {
++                    anchors.centerIn: parent
++                    width: Math.min(230, parent.height)
++                    height: width
++                    title: reveal.badge ? reveal.badge.title : ""
++                    sigil: reveal.badge ? reveal.badge.sigil : "力"
++                    rarity: reveal.badge ? reveal.badge.rarity : "common"
++                    category: reveal.badge ? reveal.badge.category : "RYOKU"
++                    animateFoil: reveal.opened && reveal.badge &&
++                        reveal.badge.rarity === "holographic" && !Lithic.reduceMotion
++                }
++            }
++            Label {
++                width: parent.width
++                text: reveal.badge ? reveal.badge.title : ""
++                typeRole: "title"
++                horizontalAlignment: Text.AlignHCenter
++                wrapMode: Text.Wrap
++                elide: Text.ElideNone
++            }
++            Label {
++                width: parent.width
++                text: reveal.badge ? reveal.badge.rarity.toUpperCase() + " / +" +
++                    reveal.badge.reward + " ◆" : ""
++                typeRole: "mono"
++                ink: reveal.metal
++                horizontalAlignment: Text.AlignHCenter
++            }
++            Label {
++                width: parent.width
++                text: "Collected. Your badge is now available to feature or place on your profile."
++                typeRole: "detail"
++                inkRole: "fg2"
++                wrapMode: Text.Wrap
++                elide: Text.ElideNone
++                horizontalAlignment: Text.AlignHCenter
++            }
++            Item { width: 1; height: 4 }
++            Plaque {
++                anchors.horizontalCenter: parent.horizontalCenter
++                kind: "gold"
++                text: "Return to archive"
++                onClicked: reveal.dismiss()
++            }
++        }
++    }
++}
 diff --git a/ryoku/hub/quickshell/components/about/ArchiveSeal.qml b/ryoku/hub/quickshell/components/about/ArchiveSeal.qml
 new file mode 100644
 index 00000000..c5e2263b
@@ -1251,6 +1718,181 @@ index 00000000..c5e2263b
 +    onCategoryChanged: face.requestPaint()
 +    onLockedChanged: face.requestPaint()
 +    onFoilPhaseChanged: if (animateFoil) face.requestPaint()
++}
+diff --git a/ryoku/hub/quickshell/components/about/BlackPrism.qml b/ryoku/hub/quickshell/components/about/BlackPrism.qml
+new file mode 100644
+index 00000000..0cf99df4
+--- /dev/null
++++ b/ryoku/hub/quickshell/components/about/BlackPrism.qml
+@@ -0,0 +1,169 @@
++import QtQuick
++import Lithic
++
++Item {
++    id: prism
++
++    property bool live: true
++    property real phase: 0
++    readonly property bool moving: live && visible && !Lithic.reduceMotion
++
++    clip: true
++    implicitWidth: 480
++    implicitHeight: 270
++
++    NumberAnimation on phase {
++        from: 0
++        to: 1
++        duration: 18000
++        loops: Animation.Infinite
++        running: prism.moving
++    }
++
++    Rectangle {
++        anchors.fill: parent
++        color: "#080a11"
++    }
++
++    Canvas {
++        anchors.fill: parent
++        renderTarget: Canvas.Image
++        renderStrategy: Canvas.Threaded
++        antialiasing: true
++        onWidthChanged: requestPaint()
++        onHeightChanged: requestPaint()
++
++        onPaint: {
++            var c = getContext("2d");
++            c.reset();
++            var w = width, h = height;
++            var cx = w * 0.56, cy = h * 0.47;
++            c.fillStyle = "#080a11";
++            c.fillRect(0, 0, w, h);
++
++            var atmosphere = c.createRadialGradient(cx, cy, 12, cx, cy, Math.max(w, h) * 0.68);
++            atmosphere.addColorStop(0, "#25213a");
++            atmosphere.addColorStop(0.24, "#18192e");
++            atmosphere.addColorStop(0.55, "#10131f");
++            atmosphere.addColorStop(1, "#080a11");
++            c.fillStyle = atmosphere;
++            c.fillRect(0, 0, w, h);
++
++            c.save();
++            c.translate(cx, cy);
++            for (var r = 0; r < 6; r++) {
++                var scale = 42 + r * 43;
++                c.beginPath();
++                for (var i = 0; i < 8; i++) {
++                    var angle = Math.PI * 2 * i / 8 + Math.PI / 8;
++                    var x = Math.cos(angle) * scale;
++                    var y = Math.sin(angle) * scale;
++                    if (!i) c.moveTo(x, y);
++                    else c.lineTo(x, y);
++                }
++                c.closePath();
++                c.lineWidth = r % 2 ? 0.7 : 1.3;
++                c.strokeStyle = ["#55435d","#4e526c","#5d566c","#3e6175","#453b64","#273b50"][r];
++                c.stroke();
++            }
++            for (var j = 0; j < 24; j++) {
++                var a = j * Math.PI / 12;
++                c.beginPath();
++                c.moveTo(Math.cos(a) * 35, Math.sin(a) * 35);
++                c.lineTo(Math.cos(a) * 310, Math.sin(a) * 310);
++                c.strokeStyle = j % 3 ? "rgba(106,114,164,0.08)" : "rgba(198,142,132,0.18)";
++                c.lineWidth = j % 3 ? 0.6 : 1.1;
++                c.stroke();
++            }
++            c.restore();
++
++            for (var y = 0; y < h; y += 44) {
++                c.fillStyle = "rgba(221,219,240,0.017)";
++                c.fillRect(0, y, w, 1);
++            }
++            for (var x = 0; x < w; x += 44) {
++                c.fillStyle = "rgba(221,219,240,0.017)";
++                c.fillRect(x, 0, 1, h);
++            }
++
++            c.fillStyle = "rgba(208,186,209,0.26)";
++            c.font = "bold 11px monospace";
++            c.textBaseline = "middle";
++            c.fillText("力  /  BLACK PRISM", 24, h - 27);
++            c.fillStyle = "rgba(190,183,209,0.25)";
++            c.textAlign = "right";
++            c.fillText("ARCHIVE COMPLETE / 032", w - 24, h - 27);
++        }
++    }
++
++    Item {
++        id: lightWheel
++        width: Math.min(prism.width, prism.height) * 0.9
++        height: width
++        anchors.centerIn: parent
++        anchors.horizontalCenterOffset: prism.width * 0.06
++        opacity: 0.45
++
++        rotation: prism.moving ? prism.phase * 360 : 28
++
++        Repeater {
++            model: 8
++            delegate: Rectangle {
++                required property int index
++                width: lightWheel.width * 0.052
++                height: lightWheel.height * 0.48
++                x: lightWheel.width / 2 - width / 2
++                y: lightWheel.height / 2 - height
++                radius: width / 2
++                transformOrigin: Item.Bottom
++                rotation: index * 45
++                gradient: Gradient {
++                    GradientStop { position: 0; color: "#04070c" }
++                    GradientStop { position: 0.58; color: index % 3 === 0 ? "#80516d" : index % 3 === 1 ? "#4f718b" : "#8b665e" }
++                    GradientStop { position: 1; color: "#171724" }
++                }
++            }
++        }
++    }
++
++    Rectangle {
++        width: Math.max(46, Math.min(prism.width, prism.height) * 0.25)
++        height: width
++        anchors.centerIn: lightWheel
++        radius: width / 2
++        color: "#080910"
++        border.width: 2
++        border.color: "#7a708d"
++
++        Rectangle {
++            anchors.centerIn: parent
++            width: parent.width * 0.66
++            height: width
++            radius: width / 2
++            color: "#10101a"
++            border.width: 1
++            border.color: "#bb8079"
++        }
++    }
++
++    Rectangle {
++        width: prism.width * 0.07
++        height: prism.height * 1.7
++        x: -width + prism.phase * (prism.width + width * 4)
++        y: -prism.height * 0.27
++        rotation: 22
++        opacity: prism.moving ? 0.14 : 0
++        gradient: Gradient {
++            GradientStop { position: 0; color: "transparent" }
++            GradientStop { position: 0.48; color: "#b2a4df" }
++            GradientStop { position: 0.52; color: "#e2a5a9" }
++            GradientStop { position: 1; color: "transparent" }
++        }
++    }
++
++    Rectangle {
++        anchors.fill: parent
++        color: "#080a11"
++        opacity: 0.22
++    }
 +}
 diff --git a/ryoku/hub/quickshell/components/about/CardEditor.qml b/ryoku/hub/quickshell/components/about/CardEditor.qml
 index 070c4065..c8968570 100644
@@ -1469,10 +2111,10 @@ index 2012cb02..4fc94460 100644
              else if (job === "save")
 diff --git a/ryoku/hub/quickshell/components/about/ProfileStudio.qml b/ryoku/hub/quickshell/components/about/ProfileStudio.qml
 new file mode 100644
-index 00000000..fbe8b06b
+index 00000000..755b8708
 --- /dev/null
 +++ b/ryoku/hub/quickshell/components/about/ProfileStudio.qml
-@@ -0,0 +1,533 @@
+@@ -0,0 +1,579 @@
 +import QtQuick
 +import Lithic
 +import Ryoku.Ui.Singletons
@@ -1671,6 +2313,52 @@ index 00000000..fbe8b06b
 +                        }
 +                    }
 +                }
++            }
++        }
++    }
++
++    Item {
++        width: parent.width
++        height: visible ? 195 : 0
++        visible: Progression.completionSceneUnlocked
++
++        CutRect {
++            anchors.fill: parent
++            cut: LithicTokens.cut.large
++            fill: "#0b0b15"
++            strokeColor: Progression.canvas.background === Progression.completionScene.id ?
++                Lithic.gold : Lithic.lapis
++            strokeWidth: 2
++        }
++        BlackPrism {
++            x: 8
++            y: 8
++            width: parent.width * 0.45
++            height: parent.height - 16
++            live: false
++        }
++        Column {
++            x: parent.width * 0.48
++            y: 16
++            width: parent.width * 0.49
++            spacing: LithicTokens.space.s2
++            Label { text: "MASTER COLLECTION / 032"; typeRole: "monoSm"; ink: Lithic.gold }
++            Label { text: I18n.tr("BLACK PRISM"); typeRole: "section"; ink: Lithic.fg }
++            Label {
++                width: parent.width
++                text: I18n.tr("Exclusive animated backdrop. Earned by collecting the complete shop.")
++                typeRole: "detail"
++                ink: Lithic.fg2
++                wrapMode: Text.Wrap
++                elide: Text.ElideNone
++            }
++            Plaque {
++                small: true
++                kind: Progression.canvas.background === Progression.completionScene.id ? "gold" : "line"
++                text: Progression.canvas.background === Progression.completionScene.id ?
++                    I18n.tr("Equipped") : I18n.tr("Equip reward")
++                enabled: Progression.canvas.background !== Progression.completionScene.id
++                onClicked: Progression.setBackground(Progression.completionScene.id)
 +            }
 +        }
 +    }
@@ -2008,10 +2696,10 @@ index 00000000..fbe8b06b
 +}
 diff --git a/ryoku/hub/quickshell/components/about/ProgressionTab.qml b/ryoku/hub/quickshell/components/about/ProgressionTab.qml
 new file mode 100644
-index 00000000..8e16508f
+index 00000000..9c5cd1a8
 --- /dev/null
 +++ b/ryoku/hub/quickshell/components/about/ProgressionTab.qml
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,292 @@
 +import QtQuick
 +import Lithic
 +import Ryoku.Ui.Singletons
@@ -2022,8 +2710,27 @@ index 00000000..8e16508f
 +    id: root
 +    spacing: LithicTokens.space.s4
 +    property int pageIndex: 0
++    signal categorySelected()
++    signal badgeClaimed(var badge)
++
++    onPageIndexChanged: {
++        root.categorySelected();
++        if (!Lithic.reduceMotion)
++            turnPage.restart();
++    }
++
++    NumberAnimation {
++        id: turnPage
++        target: album
++        property: "opacity"
++        from: 0.25
++        to: 1
++        duration: 270
++        easing.type: Easing.OutCubic
++    }
 +    readonly property var group: Progression.groups[Math.max(0, Math.min(pageIndex, Progression.groups.length - 1))]
 +    readonly property var entries: Progression.visibleBadges(group.id)
++    readonly property int totalInCategory: Progression.achievements.filter(a => a.category === group.id).length
 +    readonly property int earnedCount: entries.filter(a => Progression.data.earned[a.id] === true).length
 +    readonly property int claimableCount: entries.filter(a =>
 +        Progression.data.earned[a.id] === true && Progression.data.claimed[a.id] !== true).length
@@ -2040,7 +2747,9 @@ index 00000000..8e16508f
 +                ink: Lithic.gold
 +            }
 +            Label {
-+                text: I18n.tr("Every badge tells a story.")
++                text: root.group.id === "Mastery" ? I18n.tr("The master archives.") :
++                    root.group.id === "Classified" ? I18n.tr("Beyond the visible.") :
++                    I18n.tr("Every badge tells a story.")
 +                typeRole: "title"
 +            }
 +            Label {
@@ -2075,7 +2784,7 @@ index 00000000..8e16508f
 +
 +    Row {
 +        width: parent.width
-+        spacing: LithicTokens.space.s3
++        spacing: LithicTokens.space.s2
 +        Plaque {
 +            kind: "line"
 +            small: true
@@ -2084,15 +2793,27 @@ index 00000000..8e16508f
 +            enabled: root.pageIndex > 0
 +            onClicked: root.pageIndex--
 +        }
-+        Repeater {
-+            model: Progression.groups
-+            delegate: Plaque {
-+                required property var modelData
-+                required property int index
-+                kind: root.pageIndex === index ? "gold" : "quiet"
-+                small: true
-+                text: I18n.tr(modelData.title)
-+                onClicked: root.pageIndex = index
++        Flickable {
++            width: Math.max(0, parent.width - 120)
++            height: 38
++            clip: true
++            boundsBehavior: Flickable.StopAtBounds
++            contentWidth: categoryTabs.implicitWidth
++            contentHeight: height
++            Row {
++                id: categoryTabs
++                spacing: LithicTokens.space.s2
++                Repeater {
++                    model: Progression.groups
++                    delegate: Plaque {
++                        required property var modelData
++                        required property int index
++                        kind: root.pageIndex === index ? "gold" : "quiet"
++                        small: true
++                        text: I18n.tr(modelData.title)
++                        onClicked: root.pageIndex = index
++                    }
++                }
 +            }
 +        }
 +        Plaque {
@@ -2134,7 +2855,7 @@ index 00000000..8e16508f
 +            Column {
 +                anchors.verticalCenter: parent.verticalCenter
 +                Label {
-+                    text: root.earnedCount + " / " + root.entries.length
++                    text: root.earnedCount + " / " + root.totalInCategory
 +                    typeRole: "title"
 +                    ink: Lithic.gold
 +                }
@@ -2149,7 +2870,7 @@ index 00000000..8e16508f
 +
 +    Item {
 +        width: parent.width
-+        height: root.group.id === "Classified" ? 112 : 0
++        height: root.group.id === "Classified" ? 154 : 0
 +        visible: root.group.id === "Classified"
 +
 +        Column {
@@ -2163,6 +2884,22 @@ index 00000000..8e16508f
 +                typeRole: "monoSm"
 +                inkRole: "fg2"
 +            }
++            Row {
++                anchors.horizontalCenter: parent.horizontalCenter
++                spacing: 8
++                Repeater {
++                    model: root.totalInCategory
++                    delegate: Rectangle {
++                        required property int index
++                        width: 9
++                        height: 9
++                        rotation: 45
++                        color: index < Progression.discoveredSecrets ? Lithic.gold : "transparent"
++                        border.color: index < Progression.discoveredSecrets ? Lithic.gold : Lithic.fg3
++                        border.width: 1
++                    }
++                }
++            }
 +            Plaque {
 +                anchors.horizontalCenter: parent.horizontalCenter
 +                small: true
@@ -2174,109 +2911,67 @@ index 00000000..8e16508f
 +        }
 +    }
 +
++    Column {
++        width: parent.width
++        spacing: LithicTokens.space.s3
++        visible: root.group.id === "Mastery"
++
++        Rectangle {
++            width: parent.width
++            height: 108
++            color: Lithic.mix(Lithic.ground, Lithic.gold, 0.065)
++            border.color: Lithic.mix(Lithic.ground, Lithic.gold, 0.6)
++            border.width: 1
++
++            Row {
++                anchors.fill: parent
++                anchors.margins: 17
++                spacing: 16
++                Label {
++                    text: "道"
++                    typeRole: "title"
++                    ink: Lithic.gold
++                    anchors.verticalCenter: parent.verticalCenter
++                }
++                Column {
++                    width: Math.max(0, parent.width - 80)
++                    anchors.verticalCenter: parent.verticalCenter
++                    spacing: 5
++                    Label { text: "THE FOUR PILLARS"; typeRole: "mono"; ink: Lithic.gold }
++                    Label {
++                        width: parent.width
++                        text: "Earn each category's complete collection. Nothing here requires better hardware or paid items."
++                        typeRole: "detail"
++                        inkRole: "fg2"
++                        wrapMode: Text.Wrap
++                        elide: Text.ElideNone
++                    }
++                }
++            }
++        }
++    }
++
 +    Grid {
 +        id: album
 +        width: parent.width
-+        columns: 2
++        columns: width >= 660 ? 2 : 1
 +        columnSpacing: LithicTokens.space.s3
 +        rowSpacing: LithicTokens.space.s3
 +
 +        Repeater {
 +            model: root.entries
-+            delegate: Rectangle {
-+                id: achievementTile
++            delegate: AchievementCard {
 +                required property var modelData
-+                readonly property bool complete: Progression.data.earned[modelData.id] === true
-+                readonly property bool claimed: Progression.data.claimed[modelData.id] === true
-+                width: (album.width - album.columnSpacing) / 2
-+                height: 236
-+                radius: 6
-+                color: Lithic.mix(Lithic.ground, Lithic.fg, claimed ? 0.052 : 0.025)
-+                border.width: 1
-+                border.color: complete ? Progression.rarityColours[modelData.rarity] : Lithic.mix(Lithic.fg, Lithic.ground, 0.85)
-+
-+                Column {
-+                    anchors.fill: parent
-+                    anchors.margins: 14
-+                    spacing: 7
-+                    Row {
-+                        width: parent.width
-+                        spacing: 12
-+                        ArchiveSeal {
-+                            width: 104
-+                            height: 104
-+                            title: achievementTile.modelData.title
-+                            sigil: achievementTile.modelData.sigil
-+                            rarity: achievementTile.modelData.rarity
-+                            category: achievementTile.modelData.category
-+                            locked: !achievementTile.complete
-+                            animateFoil: achievementTile.modelData.rarity === "holographic"
-+                        }
-+                        Column {
-+                            width: parent.width - 116
-+                            spacing: 4
-+                            Label {
-+                                width: parent.width
-+                                text: I18n.tr(achievementTile.modelData.title)
-+                                typeRole: "sentence"
-+                                elide: Text.ElideRight
-+                            }
-+                            Label {
-+                                text: achievementTile.modelData.rarity.toUpperCase()
-+                                typeRole: "monoSm"
-+                                ink: Progression.rarityColours[achievementTile.modelData.rarity]
-+                            }
-+                            Label {
-+                                text: achievementTile.claimed ? I18n.tr("CLAIMED") :
-+                                    achievementTile.complete ? I18n.tr("READY TO CLAIM") : I18n.tr("LOCKED")
-+                                typeRole: "monoSm"
-+                                ink: achievementTile.complete ? Lithic.gold : Lithic.fg3
-+                            }
-+                        }
-+                    }
-+                    Label {
-+                        width: parent.width
-+                        height: 36
-+                        text: I18n.tr(achievementTile.modelData.detail)
-+                        typeRole: "detail"
-+                        inkRole: "fg2"
-+                        wrapMode: Text.Wrap
-+                        elide: Text.ElideRight
-+                    }
-+                    Label {
-+                        visible: text !== ""
-+                        text: Progression.progressFor(achievementTile.modelData.id)
-+                        typeRole: "monoSm"
-+                        ink: Progression.rarityColours[achievementTile.modelData.rarity]
-+                    }
-+                    Row {
-+                        width: parent.width
-+                        spacing: 8
-+                        Label {
-+                            anchors.verticalCenter: parent.verticalCenter
-+                            text: "+" + achievementTile.modelData.reward + " ◆"
-+                            typeRole: "mono"
-+                            ink: Lithic.gold
-+                        }
-+                        Item { width: Math.max(0, parent.width - 255); height: 1 }
-+                        Plaque {
-+                            small: true
-+                            kind: achievementTile.complete && !achievementTile.claimed ? "gold" : "line"
-+                            text: achievementTile.claimed ? I18n.tr("Collected") :
-+                                achievementTile.complete ? I18n.tr("Claim") : I18n.tr("Locked")
-+                            enabled: achievementTile.complete && !achievementTile.claimed
-+                            onClicked: Progression.claim(achievementTile.modelData.id)
-+                        }
-+                        Plaque {
-+                            visible: achievementTile.claimed
-+                            small: true
-+                            kind: Progression.featuredBadge === achievementTile.modelData.id ? "gold" : "quiet"
-+                            text: Progression.featuredBadge === achievementTile.modelData.id ? I18n.tr("Featured") : I18n.tr("Feature")
-+                            enabled: Progression.featuredBadge !== achievementTile.modelData.id
-+                            onClicked: Progression.featureBadge(achievementTile.modelData.id)
-+                        }
-+                    }
++                badge: modelData
++                width: (album.width - (album.columns - 1) * album.columnSpacing) /
++                    album.columns
++                height: implicitHeight
++                onClaimRequested: badge => {
++                    Progression.claim(badge.id);
++                    if (Progression.data.claimed[badge.id] === true)
++                        root.badgeClaimed(badge);
 +                }
++                onFeatureRequested: id => Progression.featureBadge(id)
 +            }
 +        }
 +    }
@@ -2501,10 +3196,10 @@ index ef78b4d1..cb3cd774 100644
                      // wide tick read as the level above. Blended edges keep each tick's ink exact
 diff --git a/ryoku/hub/quickshell/pages/Achievements.qml b/ryoku/hub/quickshell/pages/Achievements.qml
 new file mode 100644
-index 00000000..11d53d02
+index 00000000..30e033d1
 --- /dev/null
 +++ b/ryoku/hub/quickshell/pages/Achievements.qml
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,64 @@
 +import QtQuick
 +import Lithic
 +import Ryoku.Ui.Singletons
@@ -2555,11 +3250,18 @@ index 00000000..11d53d02
 +
 +            ProgressionTab {
 +                id: book
++                onBadgeClaimed: badge => reveal.present(badge)
++                onCategorySelected: scroll.contentY = 0
 +                x: LithicTokens.space.s5
 +                y: LithicTokens.space.s5
 +                width: Math.max(0, scroll.width - 2 * LithicTokens.space.s5 - 18)
 +            }
 +        }
++    }
++
++    AchievementReveal {
++        id: reveal
++        anchors.fill: parent
 +    }
 +}
 diff --git a/ryoku/hub/quickshell/pages/KeepsakePage.qml b/ryoku/hub/quickshell/pages/KeepsakePage.qml
@@ -2945,10 +3647,10 @@ index 00000000..380c0737
 +});
 diff --git a/ryoku/hub/quickshell/registry/progression.js b/ryoku/hub/quickshell/registry/progression.js
 new file mode 100644
-index 00000000..c54802ca
+index 00000000..6a98c9b4
 --- /dev/null
 +++ b/ryoku/hub/quickshell/registry/progression.js
-@@ -0,0 +1,640 @@
+@@ -0,0 +1,724 @@
 +.pragma library
 +
 +// Local-only Ryoku achievements, collection and profile canvas.
@@ -2998,8 +3700,8 @@ index 00000000..c54802ca
 +    { id: "ryoku-steadfast", category: "Ryoku", title: "First Week", detail: "Visit Ryoku on seven different days", reward: 190, glyph: "today", rarity: "rare", sigil: "VII" },
 +    { id: "ryoku-two-weeks", category: "Ryoku", title: "Habit Formed", detail: "Return on fourteen separate days", reward: 1100, glyph: "event_repeat", rarity: "epic", sigil: "XIV" },
 +    { id: "ryoku-thirty", category: "Ryoku", title: "A Month in the Archive", detail: "Open Ryoku on thirty different days", reward: 2600, glyph: "calendar_month", rarity: "mythic", sigil: "XXX" },
-+    { id: "ryoku-mapmaker", category: "Ryoku", title: "Behind Every Door", detail: "Explore forty different Settings pages", reward: 220, glyph: "map", rarity: "legendary", sigil: "XL" },
-+    { id: "profile-variety", category: "Profile", title: "Variety Show", detail: "Display five different stickers at once", reward: 150, glyph: "interests", rarity: "rare", sigil: "V" },
++    { id: "ryoku-mapmaker", category: "Ryoku", title: "Behind Every Door", detail: "Explore forty Settings pages across eight areas", reward: 220, glyph: "map", rarity: "legendary", sigil: "XL" },
++    { id: "profile-variety", category: "Profile", title: "Variety Show", detail: "Display two distinct earned badges and three shop art stickers together", reward: 150, glyph: "interests", rarity: "rare", sigil: "V" },
 +    { id: "profile-curation", category: "Profile", title: "Curated Exhibit", detail: "Display twelve unique sticker designs at once", reward: 310, glyph: "museum", rarity: "legendary", sigil: "XII" },
 +    { id: "profile-week", category: "Profile", title: "Seven Versions of Me", detail: "Decorate your profile on seven different days", reward: 750, glyph: "brush", rarity: "mythic", sigil: "VII" },
 +    { id: "profile-wardrobe", category: "Profile", title: "Changing Rooms", detail: "Use five different collectible backgrounds", reward: 240, glyph: "wallpaper", rarity: "epic", sigil: "V" },
@@ -3020,7 +3722,7 @@ index 00000000..c54802ca
 +    { id: "secret-atelier", category: "Classified", title: "Gallery After Dark", detail: "Display five different Ryoku art relics on your profile", reward: 320, glyph: "museum", rarity: "holographic", sigil: "石", secret: true },
 +    { id: "secret-moon", category: "Classified", title: "Moon Ritual", detail: "Place the moon artwork over the Signal Void backdrop", reward: 250, glyph: "brightness_2", rarity: "holographic", sigil: "月", secret: true },
 +    { id: "secret-scribe", category: "Classified", title: "Ink Collector", detail: "Collect every typography option and set all three text roles", reward: 280, glyph: "draw", rarity: "holographic", sigil: "文", secret: true },
-+    { id: "secret-timekeeper", category: "Classified", title: "The Long Game", detail: "Keep returning to Ryoku for fourteen different days", reward: 260, glyph: "hourglass_top", rarity: "holographic", sigil: "時", secret: true },
++    { id: "secret-timekeeper", category: "Classified", title: "The Long Game", detail: "Keep returning to Ryoku for twenty-one different days", reward: 260, glyph: "hourglass_top", rarity: "holographic", sigil: "時", secret: true },
 +    { id: "secret-many-faces", category: "Classified", title: "Identity Crisis", detail: "Use five different featured badges over time", reward: 290, glyph: "face", rarity: "holographic", sigil: "五", secret: true },
 +    { id: "secret-nightshift", category: "Classified", title: "The Midnight Compiler", detail: "Visit Settings on three different evenings", reward: 220, glyph: "nights_stay", rarity: "holographic", sigil: "夜", secret: true },
 +    { id: "secret-rabbit", category: "Classified", title: "Are You Still Here?", detail: "Browse forty settings pages and decorate on seven days", reward: 300, glyph: "pest_control_rodent", rarity: "holographic", sigil: "兎", secret: true },
@@ -3080,6 +3782,17 @@ index 00000000..c54802ca
 +    { id: "bg-metal", name: "Temple of Steel", type: "background", price: 780, art: "ryodecors/katana.png" }
 +];
 +
++// Completion cosmetics live outside the paid catalogue, so rewards cannot
++// make the "own every item" milestone recursively impossible.
++var completionScene = {
++    id: "bg-black-prism", name: "Black Prism", type: "background",
++    reward: true, price: 0, rarity: "holographic"
++};
++
++function completionSceneUnlocked(state) {
++    return !!(state && state.earned && state.earned["collection-everything"] === true);
++}
++
 +function achievement(id) { return achievements.find(function(a) { return a.id === id; }); }
 +function cosmetic(id) { return cosmetics.find(function(a) { return a.id === id; }); }
 +function stamp(id) {
@@ -3105,6 +3818,66 @@ index 00000000..c54802ca
 +        return (!category || a.category === category) && (!a.secret || next.earned[a.id]);
 +    });
 +}
++function progressInfo(state, id) {
++    var entry = achievement(id);
++    if (!entry || (entry.secret && !(state && state.earned && state.earned[id])))
++        return null;
++    var next = clean(state);
++    var pages = Object.keys(next.visited).length, areas = {};
++    Object.keys(next.visited).forEach(function(key) { areas[next.visited[key]] = true; });
++    var screens = {}, badges = {}, drawings = {};
++    next.canvas.stickers.forEach(function(sticker) {
++        screens[sticker.item] = true;
++        if (achievement(sticker.item) && next.claimed[sticker.item]) badges[sticker.item] = true;
++        if (cosmetic(sticker.item) && cosmetic(sticker.item).type === "sticker" && next.owned[sticker.item])
++            drawings[sticker.item] = true;
++    });
++    var days = Object.keys(next.days).length,
++        edits = Object.keys(next.customDays).length,
++        claims = Object.keys(next.claimed).length,
++        owned = Object.keys(next.owned).length;
++    var nums = {
++        "ryoku-pathfinder": [pages,12,"PAGES"], "ryoku-tenfold": [pages,24,"PAGES"],
++        "ryoku-voyager": [pages,30,"PAGES"], "ryoku-cartographer": [pages,40,"PAGES"],
++        "ryoku-omniscope": [pages,42,"PAGES"],
++        "ryoku-versatile": [Object.keys(areas).length,6,"AREAS"],
++        "ryoku-mapmaker": [Math.min(pages,40)+Math.min(Object.keys(areas).length,8),48,"PAGES + AREAS"],
++        "ryoku-steadfast": [days,7,"DAYS"], "ryoku-two-weeks": [days,14,"DAYS"],
++        "ryoku-thirty": [days,30,"DAYS"],
++        "profile-mosaic": [Object.keys(screens).length,5,"DESIGNS"],
++        "profile-gallery": [Object.keys(screens).length,10,"DESIGNS"],
++        "profile-sanctuary": [Object.keys(screens).length,24,"DESIGNS"],
++        "profile-variety": [Math.min(Object.keys(badges).length,2)+Math.min(Object.keys(drawings).length,3),5,"BADGES + ART"],
++        "profile-curation": [Object.keys(screens).length,12,"DESIGNS"],
++        "profile-week": [edits,7,"DAYS"],
++        "profile-wardrobe": [Object.keys(next.backgroundHistory).length,5,"SCENES"],
++        "collection-fifth": [claims,5,"BADGES"], "collection-tenth": [claims,10,"BADGES"],
++        "collection-twentieth": [claims,20,"BADGES"],
++        "collection-thirty": [claims,30,"BADGES"],
++        "collection-forty": [claims,40,"BADGES"],
++        "collection-trio": [owned,3,"OWNED"],
++        "collection-tenth-buy": [owned,10,"OWNED"],
++        "collection-twentieth-buy": [owned,20,"OWNED"],
++        "collection-patron": [Object.keys(next.shopDays).length,7,"DAYS"]
++    };
++    var category = {
++        "master-ryoku": "Ryoku", "master-profile": "Profile",
++        "master-card": "Card studio", "master-collection": "Collection"
++    }[id];
++    if (category) {
++        var entries = achievements.filter(function(a) { return a.category === category; });
++        nums[id] = [entries.filter(function(a) { return next.earned[a.id]; }).length,
++                    entries.length, "CHALLENGES"];
++    }
++    if (id === "master-hyperion")
++        nums[id] = [["master-ryoku","master-profile","master-card","master-collection"]
++            .filter(function(k) { return next.earned[k]; }).length, 4, "MASTERIES"];
++    if (!nums[id]) return null;
++    var v = nums[id];
++    return { current: Math.min(v[0],v[1]), total:v[1], label:v[2],
++             fraction: Math.max(0,Math.min(1,v[0]/v[1])) };
++}
++
 +function progress(state, id) {
 +    var next = clean(state);
 +    if (!achievement(id) || next.earned[id]) return "";
@@ -3174,7 +3947,10 @@ index 00000000..c54802ca
 +    if (count >= 24) next.earned["ryoku-tenfold"] = true;
 +    if (count >= 40) next.earned["ryoku-cartographer"] = true;
 +    if (count >= 42) next.earned["ryoku-omniscope"] = true;
-+    if (count >= 40) next.earned["ryoku-mapmaker"] = true;
++    var areas = {};
++    Object.keys(next.visited).forEach(function(key) { areas[next.visited[key]] = true; });
++    if (count >= 40 && Object.keys(areas).length >= 8)
++        next.earned["ryoku-mapmaker"] = true;
 +    if (days >= 7) next.earned["ryoku-steadfast"] = true;
 +    if (days >= 14) next.earned["ryoku-two-weeks"] = true;
 +    if (days >= 30) next.earned["ryoku-thirty"] = true;
@@ -3182,7 +3958,14 @@ index 00000000..c54802ca
 +    if (uniqueCount >= 5) next.earned["profile-mosaic"] = true;
 +    if (uniqueCount >= 10) next.earned["profile-gallery"] = true;
 +    if (uniqueCount >= 24) next.earned["profile-sanctuary"] = true;
-+    if (uniqueCount >= 5) next.earned["profile-variety"] = true;
++    var badgeKinds = {}, artKinds = {};
++    placed.forEach(function(item) {
++        if (achievement(item.item) && next.claimed[item.item]) badgeKinds[item.item] = true;
++        if (cosmetic(item.item) && cosmetic(item.item).type === "sticker" && next.owned[item.item])
++            artKinds[item.item] = true;
++    });
++    if (Object.keys(badgeKinds).length >= 2 && Object.keys(artKinds).length >= 3)
++        next.earned["profile-variety"] = true;
 +    if (uniqueCount >= 12) next.earned["profile-curation"] = true;
 +    if (customDays >= 7) next.earned["profile-week"] = true;
 +    if (Object.keys(next.backgroundHistory).length >= 5) next.earned["profile-wardrobe"] = true;
@@ -3248,7 +4031,7 @@ index 00000000..c54802ca
 +        .every(function(c) { return next.owned[c.id]; }) &&
 +        ["name", "hostname", "tagline"].every(function(role) { return !!next.canvas.fonts[role]; }))
 +        next.earned["secret-scribe"] = true;
-+    if (days >= 14) next.earned["secret-timekeeper"] = true;
++    if (days >= 21) next.earned["secret-timekeeper"] = true;
 +    if (Object.keys(next.featuredHistory).length >= 5)
 +        next.earned["secret-many-faces"] = true;
 +    if (Object.keys(next.eveningDays).length >= 3)
@@ -3329,7 +4112,9 @@ index 00000000..c54802ca
 +    var active = owned[source.active] && cosmetic(source.active).type === "palette" ? source.active : "";
 +    var featured = claimed[source.featured] ? source.featured : "";
 +    var rawCanvas = source.canvas && typeof source.canvas === "object" ? source.canvas : {};
-+    var background = owned[rawCanvas.background] && cosmetic(rawCanvas.background).type === "background"
++    var background = rawCanvas.background === completionScene.id && completionSceneUnlocked({ earned: earned })
++        ? completionScene.id :
++        owned[rawCanvas.background] && cosmetic(rawCanvas.background).type === "background"
 +        ? rawCanvas.background : "";
 +    var rawFonts = rawCanvas.fonts && typeof rawCanvas.fonts === "object" ? rawCanvas.fonts : {};
 +    var fonts = {};
@@ -3492,7 +4277,8 @@ index 00000000..c54802ca
 +
 +function background(state, id) {
 +    var next = clean(state);
-+    if (id !== "" && (!next.owned[id] || cosmetic(id).type !== "background"))
++    if (id !== "" && !(id === completionScene.id && completionSceneUnlocked(next)) &&
++        (!next.owned[id] || !cosmetic(id) || cosmetic(id).type !== "background"))
 +        return { state: next, changed: false };
 +    if (next.canvas.background === id)
 +        return { state: next, changed: false };
@@ -3589,6 +4375,141 @@ index 00000000..c54802ca
 +    cosmetics.forEach(function(c) { if (c.type === "sticker" && next.owned[c.id]) result.push(c); });
 +    return result;
 +}
+diff --git a/ryoku/hub/quickshell/registry/progression.presentation.test.mjs b/ryoku/hub/quickshell/registry/progression.presentation.test.mjs
+new file mode 100644
+index 00000000..bc9d2084
+--- /dev/null
++++ b/ryoku/hub/quickshell/registry/progression.presentation.test.mjs
+@@ -0,0 +1,129 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import fs from "node:fs";
++import vm from "node:vm";
++import path from "node:path";
++import { fileURLToPath } from "node:url";
++
++const dir = path.dirname(fileURLToPath(import.meta.url));
++const P = vm.createContext({});
++vm.runInContext(fs.readFileSync(path.join(dir, "progression.js"), "utf8")
++    .replace(/^(\.pragma|\.import) .*$/gm, ""), P);
++const serial = value => JSON.parse(JSON.stringify(value));
++
++test("Black Prism is a secret free completion bonus, not a purchase", () => {
++    assert.equal(P.cosmetics.length, 32);
++    assert.equal(P.cosmetics.some(x => x.id === P.completionScene.id), false);
++    assert.equal(P.completionScene.price, 0);
++    assert.equal(P.completionSceneUnlocked({}), false);
++    assert.equal(P.purchase({}, P.completionScene.id).changed, false);
++    assert.equal(P.background({}, P.completionScene.id).changed, false);
++});
++
++test("owning all paid cosmetics automatically unlocks the free animated background", () => {
++    const owned = Object.fromEntries(P.cosmetics.map(c => [c.id, true]));
++    let state = P.clean({ version: 4, owned });
++    assert.equal(state.earned["collection-everything"], true);
++    assert.equal(P.completionSceneUnlocked(state), true);
++    assert.equal(Object.keys(state.owned).length, 32);
++    const equipped = P.background(state, P.completionScene.id);
++    assert.equal(equipped.changed, true);
++    assert.equal(equipped.state.canvas.background, P.completionScene.id);
++    assert.equal(equipped.state.balance, state.balance);
++    assert.equal(P.purchase(equipped.state, P.completionScene.id).changed, false);
++    assert.deepEqual(serial(P.clean(equipped.state)), serial(equipped.state));
++});
++
++test("a partial collection cannot spoof access or preserve a locked background", () => {
++    const owned = Object.fromEntries(P.cosmetics.slice(0, 31).map(c => [c.id, true]));
++    const state = P.clean({ version: 4, owned,
++        canvas: { background: P.completionScene.id } });
++    assert.equal(state.earned["collection-everything"], undefined);
++    assert.equal(state.canvas.background, "");
++    assert.equal(P.background(state, P.completionScene.id).changed, false);
++});
++
++test("legacy complete collections receive the free bonus without spending", () => {
++    const owned = Object.fromEntries(P.cosmetics.map(c => [c.id, true]));
++    const migrated = P.clean({ version: 3, owned });
++    assert.equal(P.completionSceneUnlocked(migrated), true);
++    assert.equal(P.background(migrated, P.completionScene.id).changed, true);
++});
++
++test("mapmaker requires eight unique areas as well as 40 distinct pages", () => {
++    let state = P.clean({});
++    const date = "2026-11-19T15:00:00";
++    for (let i = 0; i < 40; ++i)
++        state = P.visit(state, "path-" + i,
++            ["appearance", "desktop", "windows", "devices", "connections", "apps"][i % 6], date).state;
++    assert.equal(state.earned["ryoku-cartographer"], true);
++    assert.equal(state.earned["ryoku-mapmaker"], undefined);
++    state = P.visit(state, "path-40", "accounts", date).state;
++    assert.equal(state.earned["ryoku-mapmaker"], undefined);
++    state = P.visit(state, "path-41", "system", date).state;
++    assert.equal(state.earned["ryoku-mapmaker"], true);
++});
++
++test("Variety Show requires two badges plus three different shop stickers", () => {
++    let state = P.clean({ version: 4, earned: { welcome: true, explorer: true },
++        claimed: { welcome: true, explorer: true },
++        owned: { "sticker-orbit": true, "sticker-flame": true, "sticker-bloom": true } });
++    for (const id of ["welcome", "explorer", "sticker-orbit", "sticker-flame"])
++        state = P.addSticker(state, id).state;
++    assert.equal(state.earned["profile-variety"], undefined);
++    state = P.addSticker(state, "sticker-bloom").state;
++    assert.equal(state.earned["profile-variety"], true);
++});
++
++test("The Long Game is not a duplicate of 14-day Habit Formed", () => {
++    let state = P.clean({});
++    for (let day = 1; day <= 14; ++day)
++        state = P.startDay(state, "2026-11-" + String(day).padStart(2, "0") + "T12:00:00").state;
++    assert.equal(state.earned["ryoku-two-weeks"], true);
++    assert.equal(state.earned["secret-timekeeper"], undefined);
++    for (let day = 15; day <= 21; ++day)
++        state = P.startDay(state, "2026-11-" + day + "T12:00:00").state;
++    assert.equal(state.earned["secret-timekeeper"], true);
++});
++
++test("progressInfo returns real measurements but keeps locked secrets unlisted", () => {
++    const zero = P.progressInfo({}, "ryoku-thirty");
++    assert.equal(zero.current, 0);
++    assert.equal(zero.total, 30);
++    assert.equal(zero.fraction, 0);
++    assert.equal(P.progressInfo({}, "secret-absolute"), null);
++    assert.equal(P.progressInfo({}, "ryoku-first-steps"), null);
++    let state = P.startDay({}, "2026-11-19T13:00:00").state;
++    const measure = P.progressInfo(state, "ryoku-thirty");
++    assert.equal(measure.current, 1);
++    assert.equal(measure.total, 30);
++    assert.ok(measure.fraction > 0 && measure.fraction < 1);
++});
++
++test("collectible card and claim reveal respect reduced motion and preserve hidden entry privacy", () => {
++    const components = path.join(dir, "../components/about");
++    const card = fs.readFileSync(path.join(components, "AchievementCard.qml"), "utf8");
++    const reveal = fs.readFileSync(path.join(components, "AchievementReveal.qml"), "utf8");
++    const book = fs.readFileSync(path.join(components, "ProgressionTab.qml"), "utf8");
++    assert.match(card, /ArchiveSeal \{/);
++    assert.match(card, /Progression\.progressInfoFor/);
++    assert.match(card, /card\.classified/);
++    assert.match(reveal, /Lithic\.reduceMotion/);
++    assert.match(reveal, /Keys\.onEscapePressed/);
++    assert.match(book, /Progression\.visibleBadges/);
++    assert.match(book, /AchievementCard \{/);
++});
++
++test("free animated Black Prism uses gated Home rendering and a static shop preview", () => {
++    const components = path.join(dir, "../components");
++    const scene = fs.readFileSync(path.join(components, "about/BlackPrism.qml"), "utf8");
++    const home = fs.readFileSync(path.join(components, "Home.qml"), "utf8");
++    const studio = fs.readFileSync(path.join(components, "about/ProfileStudio.qml"), "utf8");
++    assert.match(scene, /live && visible && !Lithic\.reduceMotion/);
++    assert.match(scene, /renderStrategy: Canvas.Threaded/);
++    assert.match(home, /profileBackground\.chosen === Progression\.completionScene\.id/);
++    assert.match(studio, /Progression\.completionSceneUnlocked/);
++    assert.match(studio, /BlackPrism \{/);
++    assert.match(studio, /live: false/);
++    assert.doesNotMatch(studio, /LithicTokens\.cut\.medium/);
++});
 diff --git a/ryoku/hub/quickshell/registry/progression.rebalance.test.mjs b/ryoku/hub/quickshell/registry/progression.rebalance.test.mjs
 new file mode 100644
 index 00000000..c9beeec7
