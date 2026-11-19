@@ -253,6 +253,8 @@
         postPatch = (old.postPatch or "") + ''
           mkdir -p ryoku/hub/quickshell/assets/ryodecors
           mkdir -p ryoku/hub/quickshell/art/maintainers
+          mkdir -p ryoku/hub/quickshell/assets/rewards
+          cp ${./nix/assets/hyperion-progression/rewards/black-prism.gif} ryoku/hub/quickshell/assets/rewards/black-prism.gif
           cp -r ${./nix/assets/hyperion-progression/ryodecors}/. ryoku/hub/quickshell/assets/ryodecors/
           cp -r ${./nix/assets/hyperion-progression/maintainers}/. ryoku/hub/quickshell/art/maintainers/
           test -f ryoku/hub/quickshell/registry/rarity.js
@@ -260,6 +262,9 @@
           test -f ryoku/hub/quickshell/pages/KeepsakePage.qml
           test -f ryoku/hub/quickshell/assets/ryodecors/aurelius.png
           test -f ryoku/hub/quickshell/art/maintainers/aethctl.png
+          test -s ryoku/hub/quickshell/assets/rewards/black-prism.gif
+          test -s ryoku/hub/quickshell/assets/scenes/bg-graphite.svg
+          test -s ryoku/hub/quickshell/assets/badges/ryoku-voyager.svg
         '';
       });
 
