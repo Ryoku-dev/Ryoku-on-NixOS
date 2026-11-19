@@ -117,7 +117,7 @@ pkgs.writeShellApplication {
 
     export RYOKU_CONFIG_BASE="$base"
 
-    ${ryoku.cli}/bin/ryoku materialize
+    ${ryoku.cli}/bin/.ryoku-wrapped materialize
     ${pkgs.lib.optionalString (!hyperion) ''
       ${ryoku.cli}/bin/ryoku migrate-shell-config
     ''}

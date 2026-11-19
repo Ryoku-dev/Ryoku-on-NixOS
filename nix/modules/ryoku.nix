@@ -31,7 +31,8 @@ let
       ryoku-wm-niri = ryokuHyperion.packages.${system}.ryoku-wm-niri;
       # Same derivations as the bundle's, so the services, qylock and the
       # integration file use Hyperion's data and daemon, not the legacy ones.
-      ryoku-desktop-data = ryokuHyperion.packages.${system}.ryoku-desktop-data;
+      #ryoku-desktop-data = ryokuHyperion.packages.${system}.ryoku-desktop-data;
+      ryoku-desktop-data = ryokuHyperionPackages.desktopData;
       ryoku-ryogami = self.packages.${system}.ryoku-hyperion-ryogami;
       ryoku-materialize =
         if niriOnly then self.packages.${system}.ryoku-hyperion-niri-materialize
