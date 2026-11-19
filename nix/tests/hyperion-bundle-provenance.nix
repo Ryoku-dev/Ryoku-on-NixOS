@@ -5,6 +5,7 @@
   hyperionRyoku,
   hyperionRyogami,
   hyperionHub,
+  hyperionDesktopData,
   hyperionCli,
   hyperionRyostore,
   hyperionOptionalApps,
@@ -53,21 +54,21 @@ let
     (p: if out p == out hyperionRyoku.ryogami then hyperionRyogami
         else if out p == out hyperionRyoku.cli then hyperionCli
         else if out p == out hyperionRyoku.ryostore then hyperionRyostore
-        else if out p == out hyperionRyoku.hub then hyperionHub else p)
+        else if out p == out hyperionRyoku.hub then hyperionHub
+        else if out p == out hyperionRyoku.desktopData then hyperionDesktopData else p)
     (without (hyperionOptionalApps ++ hyperionRetired) upstreamPaths);
 
   # Core shell, CLI, Hub, Ryogami, Niri and the core v2 apps.
   required = with hyperionRyoku; [
     shell
     qml
-    desktopData
     helpers
     paletteBridge
     wmNiri
     rashin
     livewall
     skwdPaper
-  ];
+  ] ++ [ hyperionDesktopData ];
 in
 
 assert lib.assertMsg (mismatched == [ ])
@@ -99,6 +100,8 @@ assert has fullComponents hyperionRyogami;
 assert !(has fullComponents hyperionRyoku.ryogami);
 assert has fullComponents hyperionHub && has niriComponents hyperionHub;
 assert !(has fullComponents hyperionRyoku.hub) && !(has niriComponents hyperionRyoku.hub);
+assert has fullComponents hyperionDesktopData && has niriComponents hyperionDesktopData;
+assert !(has fullComponents hyperionRyoku.desktopData) && !(has niriComponents hyperionRyoku.desktopData);
 assert has fullComponents hyperionCli && has niriComponents hyperionCli;
 assert !(has fullComponents hyperionRyoku.cli) && !(has niriComponents hyperionRyoku.cli);
 assert has fullComponents hyperionRyostore && has niriComponents hyperionRyostore;

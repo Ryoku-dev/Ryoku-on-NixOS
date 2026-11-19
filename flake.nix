@@ -244,11 +244,26 @@
         '';
       });
 
+      # Carry the card/progression feature as a local, reproducible patch
+      # on the existing pinned Hyperion source, leaving stable Ryoku alone.
+      hyperionDesktopData = hyperionRyoku.desktopData.overrideAttrs (old: {
+        patches = (old.patches or [ ]) ++ [
+          ./nix/patches/hyperion-card-progression.patch
+        ];
+        postPatch = (old.postPatch or "") + ''
+          test -f ryoku/hub/quickshell/registry/rarity.js
+          test -f ryoku/hub/quickshell/pages/PointsShop.qml
+          test -f ryoku/hub/quickshell/components/about/ArchiveSeal.qml
+          test -f ryoku/hub/quickshell/assets/stickers/origins.svg
+        '';
+      });
+
       hyperionComponents = map
         (p: if toString p == toString hyperionRyoku.ryogami then hyperionRyogami
             else if toString p == toString hyperionRyoku.cli then hyperionCli
             else if toString p == toString hyperionRyoku.ryostore then hyperionRyostore
-            else if toString p == toString hyperionRyoku.hub then hyperionHub else p)
+            else if toString p == toString hyperionRyoku.hub then hyperionHub
+            else if toString p == toString hyperionRyoku.desktopData then hyperionDesktopData else p)
         (withoutPaths (hyperionOptionalApps ++ hyperionRetired) hyperionRyoku.bundle.paths);
       hyperionNiriOnlyComponents =
         withoutPaths [ hyperionRyoku.wmHyprland ] hyperionComponents;
@@ -311,7 +326,7 @@
           ryoku = ryoku // {
             cli = hyperionCli;
             hub = hyperionHub;
-            desktopData = hyperionRyoku.desktopData;
+            desktopData = hyperionDesktopData;
             qml = hyperionQmlRuntime;
             wmNiri = hyperionRyoku.wmNiri;
             wmHyprland = hyperionRyoku.wmHyprland;
@@ -341,6 +356,7 @@
           ryokuNixpkgs = pkgs;
           ryokuHyperionNixpkgs = hyperionPkgs;
           ryokuHyperionPackages = hyperionRyoku // {
+            desktopData = hyperionDesktopData;
             ryogami = hyperionRyogami;
             # Keep the existing compositor-free cursor recipe on Hyperion's sources.
             cursorMaterial = import ./nix/packages/ryoku-cursor-material.nix {
@@ -434,6 +450,7 @@
         ryoku-v2 = ryokuV2;
         ryoku-hyperion-ryogami = hyperionRyogami;
         ryoku-hyperion-hub = hyperionHub;
+        ryoku-hyperion-desktop-data = hyperionDesktopData;
         ryoku-hyperion-cli = hyperionCli;
         ryoku-hyperion-ryostore = hyperionRyostore;
         ryoku-hyperion-qml-runtime = hyperionQmlRuntime;
@@ -806,11 +823,16 @@
         '';
 
         ryoku-hyperion-bundle-provenance = import ./nix/tests/hyperion-bundle-provenance.nix {
-          inherit pkgs hyperionRyoku hyperionRyogami hyperionHub hyperionCli hyperionRyostore hyperionOptionalApps hyperionRetired;
+          inherit pkgs hyperionRyoku hyperionRyogami hyperionHub hyperionCli hyperionRyostore hyperionDesktopData hyperionOptionalApps hyperionRetired;
           hyperionPackages = ryokuHyperion.packages.${system};
           bridges = hyperionNixosBridges;
           fullBundle = ryokuHyperionNixosBundle;
           niriBundle = ryokuHyperionNiriNixosBundle;
+        };
+
+        ryoku-hyperion-card-progression = import ./nix/tests/hyperion-card-progression.nix {
+          pkgs = hyperionPkgs;
+          desktopData = hyperionDesktopData;
         };
 
         # The default install's login sessions, read from its evaluated config.
