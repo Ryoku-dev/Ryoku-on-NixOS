@@ -251,10 +251,15 @@
           ./nix/patches/hyperion-card-progression.patch
         ];
         postPatch = (old.postPatch or "") + ''
+          mkdir -p ryoku/hub/quickshell/assets/ryodecors
+          mkdir -p ryoku/hub/quickshell/art/maintainers
+          cp -r ${./nix/assets/hyperion-progression/ryodecors}/. ryoku/hub/quickshell/assets/ryodecors/
+          cp -r ${./nix/assets/hyperion-progression/maintainers}/. ryoku/hub/quickshell/art/maintainers/
           test -f ryoku/hub/quickshell/registry/rarity.js
           test -f ryoku/hub/quickshell/pages/PointsShop.qml
-          test -f ryoku/hub/quickshell/components/about/ArchiveSeal.qml
-          test -f ryoku/hub/quickshell/assets/stickers/origins.svg
+          test -f ryoku/hub/quickshell/pages/KeepsakePage.qml
+          test -f ryoku/hub/quickshell/assets/ryodecors/aurelius.png
+          test -f ryoku/hub/quickshell/art/maintainers/aethctl.png
         '';
       });
 
