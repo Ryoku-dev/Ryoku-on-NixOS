@@ -25,3 +25,5 @@ ryoku/**/*.zst binary
 ryoku/**/*.pdf binary
 ryoku/**/*.qmlc binary
 ryoku/**/*.jsc binary
+# Unified diffs require a leading space on empty context lines.
+nix/patches/hyperion-card-progression.patch -whitespace
