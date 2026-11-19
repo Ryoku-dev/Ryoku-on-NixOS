@@ -1697,6 +1697,12 @@ in
       theme = lib.mkIf config.services.displayManager.sddm.enable
         (lib.mkOverride 900 "ryoku");
 
+      # Let SDDM remember the chosen session through its normal state.conf.
+      # A generation-specific /nix/store SessionDir invalidates that saved
+      # absolute path after a rebuild. /etc keeps the name stable while NixOS
+      # updates the directory's target to the new generation.
+      settings.Wayland.SessionDir = lib.mkDefault "/etc/ryoku/wayland-sessions";
+
       # A No Desktop NixOS install has no Xserver for SDDM to run on.
       # Ryoku is Wayland-native, so when SDDM is active without Xserver,
       # supply its Wayland greeter backend as the default. An explicit user
@@ -1713,6 +1719,11 @@ in
         pkgs.qt6.qtsvg
       ];
     };
+
+    environment.etc."ryoku/wayland-sessions" = lib.mkIf
+      config.services.displayManager.sddm.enable {
+        source = "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions";
+      };
 
     # SDDM 0.21 can treat a crashed Wayland greeter as a successful login and
     # leave the machine on an empty VT. The upstream guard waits until SDDM has
@@ -1744,7 +1755,7 @@ in
       RYOKU_SDDM_SESSION_HELPER = "${ryokuSystemBridge}/bin/ryoku-sddm-session";
       RYOKU_SDDM_SESSION_DIR =
         if config.services.displayManager.sddm.enable then
-          "${config.services.displayManager.sessionData.desktops}/share/wayland-sessions"
+          config.services.displayManager.sddm.settings.Wayland.SessionDir
         else
           "";
       RYOKU_NIX_INTEGRATION = "/etc/ryoku/nix-integration.json";

@@ -280,6 +280,14 @@ let
     services.displayManager.defaultSession = "niri";
   }).config;
 
+  sddmDisabled = (evaluate {
+    services.displayManager.sddm.enable = false;
+  }).config;
+
+  customSessionDir = (evaluate {
+    services.displayManager.sddm.settings.Wayland.SessionDir = "/custom/sessions";
+  }).config;
+
   firefoxBrowser = (evaluate {
     programs.ryoku.browser = "firefox";
   }).config;
@@ -296,6 +304,18 @@ assert lib.assertMsg (matrixProblems == [ ])
 # host choice still beats the installer preference.
 assert niriDefault.services.displayManager.defaultSession == "ryoku-niri";
 assert userDefault.services.displayManager.defaultSession == "niri";
+
+# SDDM and the Hub see the same stable session paths across generations.
+assert bare.config.services.displayManager.sddm.settings.Wayland.SessionDir
+  == "/etc/ryoku/wayland-sessions";
+assert bare.config.environment.sessionVariables.RYOKU_SDDM_SESSION_DIR
+  == "/etc/ryoku/wayland-sessions";
+assert bare.config.environment.etc."ryoku/wayland-sessions".source
+  == "${bare.config.services.displayManager.sessionData.desktops}/share/wayland-sessions";
+assert !(sddmDisabled.environment.etc ? "ryoku/wayland-sessions");
+assert sddmDisabled.environment.sessionVariables.RYOKU_SDDM_SESSION_DIR == "";
+assert customSessionDir.environment.sessionVariables.RYOKU_SDDM_SESSION_DIR
+  == "/custom/sessions";
 
 # Browser selection is declarative and reaches both PATH and the shell fallback.
 assert builtins.elem pkgs.firefox firefoxBrowser.environment.systemPackages;
