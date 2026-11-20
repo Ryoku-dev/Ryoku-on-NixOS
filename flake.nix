@@ -278,6 +278,13 @@
       hyperionNiriOnlyComponents =
         withoutPaths [ hyperionRyoku.wmHyprland ] hyperionComponents;
 
+      # Keep the compositor-free cursor recipe on Hyperion's sources too.
+      hyperionCursorMaterial = import ./nix/packages/ryoku-cursor-material.nix {
+        pkgs = hyperionPkgs;
+        ryokuSrc = hyperionRyoku.cursorMaterial.src;
+        bibataSrc = ryokuHyperion.inputs.bibataMaterialSrc;
+      };
+
       # The NixOS bridge must take precedence over upstream helpers with the
       # same executable names.
       hyperionNixosBridges = [
@@ -368,12 +375,7 @@
           ryokuHyperionPackages = hyperionRyoku // {
             desktopData = hyperionDesktopData;
             ryogami = hyperionRyogami;
-            # Keep the existing compositor-free cursor recipe on Hyperion's sources.
-            cursorMaterial = import ./nix/packages/ryoku-cursor-material.nix {
-              pkgs = hyperionPkgs;
-              ryokuSrc = hyperionRyoku.cursorMaterial.src;
-              bibataSrc = ryokuHyperion.inputs.bibataMaterialSrc;
-            };
+            cursorMaterial = hyperionCursorMaterial;
           };
         };
 
@@ -459,6 +461,7 @@
         ryoku-shima = ryokuShima;
         ryoku-v2 = ryokuV2;
         ryoku-hyperion-ryogami = hyperionRyogami;
+        ryoku-hyperion-cursor-material = hyperionCursorMaterial;
         ryoku-hyperion-hub = hyperionHub;
         ryoku-hyperion-desktop-data = hyperionDesktopData;
         ryoku-hyperion-cli = hyperionCli;

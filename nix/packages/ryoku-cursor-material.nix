@@ -6,6 +6,18 @@ pkgs.stdenvNoCC.mkDerivation {
 
   src = ryokuSrc;
 
+  # Runtime copytree preserves the immutable store's modes. The helper edits
+  # render.json and (on Hyperion's fast Xcursor path) build.toml, and needs
+  # writable directories to clean up its private compilation tree afterward.
+  postPatch = ''
+    substituteInPlace release/packages/ryoku-cursor-material/ryoku-cursor-material-recolor \
+      --replace-fail '    render = work / "config/render.json"' '${builtins.concatStringsSep "\n" [
+        "    for path in work.rglob(\"*\"):"
+        "        path.chmod(path.stat().st_mode | 0o200)"
+        "    render = work / \"config/render.json\""
+      ]}'
+  '';
+
   # The recolour helper only needs python, rsvg-convert and xcursorgen: the
   # hyprcursor pack is zipped by Bibata's own script. The stock compositor once
   # sat on its PATH and added ~420 MiB (and a second Hyprland) to the closure.
@@ -117,6 +129,17 @@ pkgs.stdenvNoCC.mkDerivation {
       ]}
 
     runHook postInstall
+  '';
+
+  doInstallCheck = true;
+  installCheckPhase = ''
+    runHook preInstallCheck
+    # Nix makes store outputs read-only after the build; reproduce those
+    # runtime permissions now rather than testing a writable staging tree.
+    chmod -R a-w "$out/share/ryoku-cursor-material/bibata"
+    python3 ${../tests/test-cursor-material-runtime.py} \
+      "$out/bin/.ryoku-cursor-material-recolor-wrapped"
+    runHook postInstallCheck
   '';
 
   meta = {
