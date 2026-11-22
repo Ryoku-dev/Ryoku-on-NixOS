@@ -257,6 +257,8 @@
           cp ${./nix/assets/hyperion-progression/rewards/black-prism.gif} ryoku/hub/quickshell/assets/rewards/black-prism.gif
           cp -r ${./nix/assets/hyperion-progression/ryodecors}/. ryoku/hub/quickshell/assets/ryodecors/
           cp -r ${./nix/assets/hyperion-progression/maintainers}/. ryoku/hub/quickshell/art/maintainers/
+          cp -r ${./nix/assets/hyperion-progression/badges}/. ryoku/hub/quickshell/assets/badges/
+          cp ${./nix/assets/hyperion-progression/qml/ArchiveSeal.qml} ryoku/hub/quickshell/components/about/ArchiveSeal.qml
           test -f ryoku/hub/quickshell/registry/rarity.js
           test -f ryoku/hub/quickshell/pages/PointsShop.qml
           test -f ryoku/hub/quickshell/pages/KeepsakePage.qml

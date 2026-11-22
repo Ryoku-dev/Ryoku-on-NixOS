@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Sticker Artist</title>
+<desc>Flat Hellenic achievement insignia. Common rarity. Profile.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+
+
+<path d="M160 40L239 87V204L160 274L81 204V87Z" fill="#848b99"/><path d="M160 64L219 99V196L160 251L101 196V99Z" fill="#141d2c"/><path d="M99 95L160 52L221 95" stroke="#848b99" stroke-width="8" fill="none"/><path d="M121 247H199" stroke="#848b99" stroke-width="5"/><path d="M123 69L160 51L197 69" stroke="#848b99" stroke-width="4" fill="none"/>
+<path d="M95 238Q40 189 72 103" stroke="#848b99" stroke-width="5.5" fill="none"/><ellipse cx="83.0" cy="216.0" rx="10" ry="5.8" fill="#848b99" transform="rotate(47 83.0 216.0)"/><ellipse cx="75.2" cy="156.5" rx="10" ry="5.8" fill="#848b99" transform="rotate(34 75.2 156.5)"/><ellipse cx="75.2" cy="97.0" rx="10" ry="5.8" fill="#848b99" transform="rotate(21 75.2 97.0)"/><path d="M225 238Q280 189 248 103" stroke="#848b99" stroke-width="5.5" fill="none"/><ellipse cx="237.0" cy="216.0" rx="10" ry="5.8" fill="#848b99" transform="rotate(-47 237.0 216.0)"/><ellipse cx="244.8" cy="156.5" rx="10" ry="5.8" fill="#848b99" transform="rotate(-34 244.8 156.5)"/><ellipse cx="244.8" cy="97.0" rx="10" ry="5.8" fill="#848b99" transform="rotate(-21 244.8 97.0)"/>
+<circle cx="160" cy="155" r="66" fill="#141d2c" stroke="#848b99" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M-35 39Q-28-6 28-40Q47 3-3 29Z" fill="#848b99"/><path d="M-35 39L29-26 M-16 17L-15-13 M0 3L27 3" stroke="#141d2c" stroke-width="4"/></g>
+
+</g>
+</svg>

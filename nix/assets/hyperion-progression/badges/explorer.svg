@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Under the Hood</title>
+<desc>Flat Hellenic achievement insignia. Uncommon rarity. Card studio.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+<path d="M97 129L28 108L45 131L97 143Z" fill="#849a65"/><path d="M97 148L21 127L38 150L97 162Z" fill="#849a65"/><path d="M223 129L292 108L275 131L223 143Z" fill="#849a65"/><path d="M223 148L299 127L282 150L223 162Z" fill="#849a65"/>
+
+<path d="M92 65H228V217L160 272L92 217Z" fill="#849a65"/><path d="M107 83H213V206L160 250L107 206Z" fill="#18231d"/><path d="M121 247H199" stroke="#849a65" stroke-width="5"/><path d="M123 69L160 51L197 69" stroke="#849a65" stroke-width="4" fill="none"/>
+
+<circle cx="160" cy="155" r="66" fill="#18231d" stroke="#849a65" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M-39-25L0-43L39-25V-19H-39Z" fill="#849a65"/><path d="M-36-13H36V-7H-36Z M-36 27H36V34H-36Z" fill="#849a65"/><path d="M-29-7H-17V27H-29Z M-6-7H6V27H-6Z M17-7H29V27H17Z" fill="#849a65"/><path d="M0-35L-13-27H13Z" fill="#18231d"/></g>
+
+</g>
+</svg>

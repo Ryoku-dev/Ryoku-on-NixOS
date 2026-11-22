@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Versatile</title>
+<desc>Flat Hellenic achievement insignia. Rare rarity. Ryoku.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+<path d="M97 129L28 108L45 131L97 143Z" fill="#4487ec"/><path d="M97 148L21 127L38 150L97 162Z" fill="#4487ec"/><path d="M223 129L292 108L275 131L223 143Z" fill="#4487ec"/><path d="M223 148L299 127L282 150L223 162Z" fill="#4487ec"/>
+
+<path d="M160 40L239 87V204L160 274L81 204V87Z" fill="#4487ec"/><path d="M160 64L219 99V196L160 251L101 196V99Z" fill="#101e39"/><path d="M99 95L160 52L221 95" stroke="#4487ec" stroke-width="8" fill="none"/><path d="M109 93L160 64L211 93" fill="none" stroke="#8ab3ff" stroke-width="3.5"/><path d="M121 247H199" stroke="#4487ec" stroke-width="5"/>
+
+<circle cx="160" cy="155" r="66" fill="#101e39" stroke="#4487ec" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.09)"><path d="M0-43L10-17L33-31L25-5L43 0L25 8L31 33L6 23L0 43L-9 19L-33 31L-25 5L-43 0L-25-9L-31-33L-5-23Z" fill="#4487ec"/><circle r="10" fill="#101e39"/></g>
+<path d="M113 244Q160 255 207 244L215 260Q160 278 105 260Z" fill="#4487ec"/><path d="M122 254H198" stroke="#101e39" stroke-width="3"/>
+</g>
+</svg>

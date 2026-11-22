@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Voyager</title>
+<desc>Flat Hellenic achievement insignia. Rare rarity. Ryoku.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+<path d="M97 129L28 108L45 131L97 143Z" fill="#4487ec"/><path d="M97 148L21 127L38 150L97 162Z" fill="#4487ec"/><path d="M223 129L292 108L275 131L223 143Z" fill="#4487ec"/><path d="M223 148L299 127L282 150L223 162Z" fill="#4487ec"/>
+
+<path d="M160 43L235 72V169Q236 225 160 271Q84 225 85 169V72Z" fill="#4487ec"/><path d="M160 62L217 84V164Q217 207 160 244Q103 207 103 164V84Z" fill="#101e39"/><path d="M109 93L160 64L211 93" fill="none" stroke="#8ab3ff" stroke-width="3.5"/><path d="M121 247H199" stroke="#4487ec" stroke-width="5"/><circle cx="160" cy="59" r="5.5" fill="#8ab3ff"/>
+
+<circle cx="160" cy="155" r="66" fill="#101e39" stroke="#4487ec" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M-5-42V20L30 20Z M-11-32L-34 14H-11Z" fill="#4487ec"/><path d="M-38 22H37L23 37H-23Z" fill="#4487ec"/><path d="M-17 29H20" stroke="#101e39" stroke-width="4"/></g>
+
+</g>
+</svg>

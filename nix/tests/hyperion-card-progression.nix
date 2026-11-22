@@ -18,6 +18,14 @@ pkgs.runCommand "ryoku-hyperion-card-progression-check" {
   test -s "$hub/components/about/BlackPrism.qml"
   test -s "$hub/registry/profile-ui.test.mjs"
   test -s "$hub/assets/badges/ryoku-voyager.svg"
+  test "$(find "$hub/assets/badges" -maxdepth 1 -name '*.svg' | wc -l)" -eq 72
+  grep -Fq 'Flat Hellenic achievement insignia' "$hub/assets/badges/ryoku-first-steps.svg"
+  grep -Fq 'Flat Hellenic achievement insignia' "$hub/assets/badges/secret-absolute.svg"
+  if grep -Elq '<(linearGradient|radialGradient|filter|image|script)' "$hub"/assets/badges/*.svg; then
+    echo "Hyperion badges must stay flat and self-contained" >&2
+    exit 1
+  fi
+  ! grep -Fq 'id: glint' "$hub/components/about/ArchiveSeal.qml"
   test -s "$hub/assets/scenes/bg-graphite.svg"
   test -s "$hub/assets/rewards/black-prism.gif"
   test -s "$hub/registry/progression.presentation.test.mjs"

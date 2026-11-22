@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Fivefold Archive</title>
+<desc>Flat Hellenic achievement insignia. Uncommon rarity. Collection.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+
+
+<path d="M160 40L235 82V220L160 274L85 220V82Z" fill="#849a65"/><path d="M160 60L216 94V207L160 251L104 207V94Z" fill="#18231d"/>
+<path d="M95 238Q40 189 72 103" stroke="#849a65" stroke-width="5.5" fill="none"/><ellipse cx="83.0" cy="216.0" rx="10" ry="5.8" fill="#849a65" transform="rotate(47 83.0 216.0)"/><ellipse cx="75.2" cy="156.5" rx="10" ry="5.8" fill="#849a65" transform="rotate(34 75.2 156.5)"/><ellipse cx="75.2" cy="97.0" rx="10" ry="5.8" fill="#849a65" transform="rotate(21 75.2 97.0)"/><path d="M225 238Q280 189 248 103" stroke="#849a65" stroke-width="5.5" fill="none"/><ellipse cx="237.0" cy="216.0" rx="10" ry="5.8" fill="#849a65" transform="rotate(-47 237.0 216.0)"/><ellipse cx="244.8" cy="156.5" rx="10" ry="5.8" fill="#849a65" transform="rotate(-34 244.8 156.5)"/><ellipse cx="244.8" cy="97.0" rx="10" ry="5.8" fill="#849a65" transform="rotate(-21 244.8 97.0)"/>
+<circle cx="160" cy="155" r="66" fill="#18231d" stroke="#849a65" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M0-44L11-13L43-13L17 7L26 39L0 21L-26 39L-17 7L-43-13L-11-13Z" fill="#849a65"/></g>
+<path d="M113 244Q160 255 207 244L215 260Q160 278 105 260Z" fill="#849a65"/><path d="M122 254H198" stroke="#18231d" stroke-width="3"/>
+</g>
+</svg>
