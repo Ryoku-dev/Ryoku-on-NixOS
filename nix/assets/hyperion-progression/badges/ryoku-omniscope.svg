@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Omniscope</title>
+<desc>Flat Hellenic achievement insignia. Legendary rarity. Ryoku.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+<g><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(0.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(40.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(80.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(120.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(160.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(200.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(240.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(280.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(320.0 160 155)"/></g>
+<path d="M97 129L28 108L45 131L97 143Z" fill="#edb84f"/><path d="M87 131L47 119" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M97 148L21 127L38 150L97 162Z" fill="#edb84f"/><path d="M87 150L40 138" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M97 167L14 146L31 169L97 181Z" fill="#edb84f"/><path d="M223 129L292 108L275 131L223 143Z" fill="#edb84f"/><path d="M233 131L273 119" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M223 148L299 127L282 150L223 162Z" fill="#edb84f"/><path d="M233 150L280 138" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M223 167L306 146L289 169L223 181Z" fill="#edb84f"/>
+
+<path d="M160 40L239 87V204L160 274L81 204V87Z" fill="#edb84f"/><path d="M160 64L219 99V196L160 251L101 196V99Z" fill="#34220f"/><path d="M99 95L160 52L221 95" stroke="#edb84f" stroke-width="8" fill="none"/><path d="M109 93L160 64L211 93" fill="none" stroke="#f7d484" stroke-width="3.5"/><path d="M119.0 51L124.0 34L129.0 51Z" fill="#edb84f"/><path d="M137.0 51L142.0 29L147.0 51Z" fill="#edb84f"/><path d="M155.0 51L160.0 34L165.0 51Z" fill="#edb84f"/><path d="M173.0 51L178.0 29L183.0 51Z" fill="#edb84f"/><path d="M191.0 51L196.0 34L201.0 51Z" fill="#edb84f"/><path d="M121 247H199" stroke="#edb84f" stroke-width="5"/><circle cx="160" cy="59" r="5.5" fill="#f7d484"/><path d="M127 252v-8h9v7h-5" fill="none" stroke="#f7d484" stroke-width="2.7"/><path d="M147 252v-8h9v7h-5" fill="none" stroke="#f7d484" stroke-width="2.7"/><path d="M167 252v-8h9v7h-5" fill="none" stroke="#f7d484" stroke-width="2.7"/>
+
+<circle cx="160" cy="155" r="67" fill="#34220f" stroke="#edb84f" stroke-width="5"/><circle cx="160" cy="155" r="59" fill="none" stroke="#f7d484" stroke-width="3"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M-43 0Q0-38 43 0Q0 38-43 0Z" fill="#edb84f"/><circle r="16" fill="#34220f"/><circle r="7" fill="#edb84f"/></g>
+
+</g>
+</svg>

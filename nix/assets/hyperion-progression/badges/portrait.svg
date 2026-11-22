@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>A New Face</title>
+<desc>Flat Hellenic achievement insignia. Rare rarity. Card studio.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+<path d="M97 129L28 108L45 131L97 143Z" fill="#4487ec"/><path d="M97 148L21 127L38 150L97 162Z" fill="#4487ec"/><path d="M223 129L292 108L275 131L223 143Z" fill="#4487ec"/><path d="M223 148L299 127L282 150L223 162Z" fill="#4487ec"/>
+
+<path d="M160 40L235 82V220L160 274L85 220V82Z" fill="#4487ec"/><path d="M160 60L216 94V207L160 251L104 207V94Z" fill="#101e39"/><path d="M109 93L160 64L211 93" fill="none" stroke="#8ab3ff" stroke-width="3.5"/>
+
+<circle cx="160" cy="155" r="66" fill="#101e39" stroke="#4487ec" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M-34-29Q0-44 34-29L31 19Q9 43 0 43Q-9 43-31 19Z" fill="#4487ec"/><path d="M-23-10L-5-6L-13 5Z M23-10L5-6L13 5Z" fill="#101e39"/><path d="M-18 17Q0 30 18 17" fill="none" stroke="#101e39" stroke-width="6"/></g>
+<path d="M113 244Q160 255 207 244L215 260Q160 278 105 260Z" fill="#4487ec"/><path d="M122 254H198" stroke="#101e39" stroke-width="3"/>
+</g>
+</svg>

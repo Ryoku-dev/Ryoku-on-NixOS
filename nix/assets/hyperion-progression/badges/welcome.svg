@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>First Contact</title>
+<desc>Flat Hellenic achievement insignia. Common rarity. Card studio.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+<path d="M97 129L28 108L45 131L97 143Z" fill="#848b99"/><path d="M97 148L21 127L38 150L97 162Z" fill="#848b99"/><path d="M223 129L292 108L275 131L223 143Z" fill="#848b99"/><path d="M223 148L299 127L282 150L223 162Z" fill="#848b99"/>
+
+<path d="M160 40L235 82V220L160 274L85 220V82Z" fill="#848b99"/><path d="M160 60L216 94V207L160 251L104 207V94Z" fill="#141d2c"/><path d="M123 69L160 51L197 69" stroke="#848b99" stroke-width="4" fill="none"/>
+
+<circle cx="160" cy="155" r="66" fill="#141d2c" stroke="#848b99" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M-7 0H7V34H-7Z M-18 32H18V39H-18Z M-14-3H14V5H-14Z" fill="#848b99"/><path d="M2-45Q-28-20-15-4Q-11 5 1 4Q28 0 20-18Q10-28 14-36Q2-30 2-45Z" fill="#848b99"/><path d="M-4-21Q-12-8-1-6Q8-5 7-16Q0-14-4-21Z" fill="#141d2c"/></g>
+
+</g>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Full Deck</title>
+<desc>Flat Hellenic achievement insignia. Legendary rarity. Card studio.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+<g><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(0.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(40.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(80.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(120.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(160.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(200.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(240.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(280.0 160 155)"/><path d="M155 48L160 27L165 48Z" fill="#edb84f" transform="rotate(320.0 160 155)"/></g>
+<path d="M97 129L28 108L45 131L97 143Z" fill="#edb84f"/><path d="M87 131L47 119" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M97 148L21 127L38 150L97 162Z" fill="#edb84f"/><path d="M87 150L40 138" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M97 167L14 146L31 169L97 181Z" fill="#edb84f"/><path d="M223 129L292 108L275 131L223 143Z" fill="#edb84f"/><path d="M233 131L273 119" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M223 148L299 127L282 150L223 162Z" fill="#edb84f"/><path d="M233 150L280 138" fill="none" stroke="#f7d484" stroke-width="3"/><path d="M223 167L306 146L289 169L223 181Z" fill="#edb84f"/>
+
+<path d="M160 40L235 82V220L160 274L85 220V82Z" fill="#edb84f"/><path d="M160 60L216 94V207L160 251L104 207V94Z" fill="#34220f"/><path d="M109 93L160 64L211 93" fill="none" stroke="#f7d484" stroke-width="3.5"/><path d="M119.0 51L124.0 34L129.0 51Z" fill="#edb84f"/><path d="M137.0 51L142.0 29L147.0 51Z" fill="#edb84f"/><path d="M155.0 51L160.0 34L165.0 51Z" fill="#edb84f"/><path d="M173.0 51L178.0 29L183.0 51Z" fill="#edb84f"/><path d="M191.0 51L196.0 34L201.0 51Z" fill="#edb84f"/><path d="M123 69L160 51L197 69" stroke="#edb84f" stroke-width="4" fill="none"/><path d="M127 252v-8h9v7h-5" fill="none" stroke="#f7d484" stroke-width="2.7"/><path d="M147 252v-8h9v7h-5" fill="none" stroke="#f7d484" stroke-width="2.7"/><path d="M167 252v-8h9v7h-5" fill="none" stroke="#f7d484" stroke-width="2.7"/>
+
+<circle cx="160" cy="155" r="66" fill="#34220f" stroke="#edb84f" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.16)"><path d="M0-43Q16-28 35-26L33 8Q29 31 0 44Q-29 31-33 8L-35-26Q-16-28 0-43Z" fill="#f7d484"/><path d="M0-30Q12-20 22-19L20 8Q18 21 0 31Q-18 21-20 8L-22-19Q-12-20 0-30Z" fill="#34220f"/><path d="M-13 0L-2 13L17-12" stroke="#f7d484" stroke-width="8" fill="none"/></g>
+<path d="M127 250L160 267L193 250" fill="none" stroke="#f7d484" stroke-width="5"/>
+</g>
+</svg>

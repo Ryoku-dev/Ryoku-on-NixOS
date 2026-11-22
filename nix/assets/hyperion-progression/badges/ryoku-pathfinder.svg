@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+<title>Pathfinder</title>
+<desc>Flat Hellenic achievement insignia. Uncommon rarity. Ryoku.</desc>
+<g stroke-linejoin="round" stroke-linecap="round">
+
+<path d="M97 129L28 108L45 131L97 143Z" fill="#849a65"/><path d="M97 148L21 127L38 150L97 162Z" fill="#849a65"/><path d="M223 129L292 108L275 131L223 143Z" fill="#849a65"/><path d="M223 148L299 127L282 150L223 162Z" fill="#849a65"/>
+
+<path d="M160 40L235 82V220L160 274L85 220V82Z" fill="#849a65"/><path d="M160 60L216 94V207L160 251L104 207V94Z" fill="#18231d"/><path d="M123 69L160 51L197 69" stroke="#849a65" stroke-width="4" fill="none"/>
+
+<circle cx="160" cy="155" r="66" fill="#18231d" stroke="#849a65" stroke-width="7"/>
+<g transform="translate(160 155) scale(1.09)"><circle r="31" fill="none" stroke="#849a65" stroke-width="7"/><path d="M0-44L9-9L43 0L9 9L0 44L-9 9L-43 0L-9-9Z" fill="#849a65"/><circle r="6" fill="#18231d"/></g>
+
+</g>
+</svg>
