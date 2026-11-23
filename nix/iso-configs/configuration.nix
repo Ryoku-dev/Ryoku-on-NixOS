@@ -11,8 +11,8 @@ in
   imports = [
     ./hardware-configuration.nix
     ./hardware/gpu/common.nix
-    ./pkgs.nix
-  ] ++ map gpuModule install.gpuVendors;
+  ] ++ lib.optional (!(install.minimal or false)) ./pkgs.nix
+    ++ map gpuModule install.gpuVendors;
 
   # ──────────────────────────────────────────────────────────────────────────
   # Boot

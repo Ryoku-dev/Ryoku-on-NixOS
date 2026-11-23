@@ -150,9 +150,9 @@ func (s *isoInstallStream) kill() {
 func newISOModel(opts options) isoModel {
 	keep := map[string]bool{}
 	for _, app := range optionalApps() {
-		keep[app.ID] = true
+		keep[app.ID] = !isoOffline()
 	}
-	return isoModel{
+	m := isoModel{
 		opts: opts,
 		picks: map[string]string{
 			"filesystem":    "ext4",
@@ -176,6 +176,13 @@ func newISOModel(opts options) isoModel {
 			"disk-confirm": "",
 		},
 	}
+	if isoOffline() {
+		m.picks["kernel"] = "latest"
+		m.picks["compositor"] = "niri"
+		m.picks["browser"] = "firefox"
+	}
+	return m
+
 }
 
 func (m isoModel) Init() tea.Cmd {
@@ -188,6 +195,9 @@ func (m isoModel) Init() tea.Cmd {
 
 
 func isoCheckNetworkCmd() tea.Cmd {
+	if isoOffline() {
+		return isoCheckMediaCmd()
+	}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(
 			context.Background(),
@@ -371,7 +381,7 @@ func isoHashPasswordCmd(password string) tea.Cmd {
 }
 
 func (m isoModel) current() isoStep {
-	return isoFlow[clamp(m.idx, 0, len(isoFlow)-1)]
+	return isoStepForMode(isoFlow[clamp(m.idx, 0, len(isoFlow)-1)])
 }
 
 func (m *isoModel) gotoKey(key string) {
@@ -429,6 +439,9 @@ func (m *isoModel) back() {
 }
 
 func isoChoices(key string) []choice {
+	if isoOffline() {
+		if choices := isoMinimalChoices(key); choices != nil { return choices }
+	}
 	switch key {
 	case "filesystem":
 		return []choice{{"ext4", "ext4", "mature · simple · conservative default"}, {"btrfs", "Btrfs", "checksums · snapshots capable"}}
@@ -538,6 +551,7 @@ func (m *isoModel) setChoiceCursor(key string) {
 }
 
 func (m isoModel) selectedApps() []string {
+	if isoOffline() { return nil }
 	var out []string
 	for _, app := range optionalApps() {
 		if m.keep[app.ID] {
@@ -733,6 +747,9 @@ func (m isoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		if msg.online {
 			m.status = "Connected to cache.nixos.org over HTTPS"
+			if isoOffline() {
+				m.status = "Offline installation media is available"
+			}
 			m.err = nil
 		} else {
 			m.status = "No working HTTPS connection"
@@ -878,6 +895,9 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if isoOffline() {
+			return m, nil
+		}
 		if k == "up" || k == "k" {
 			m.cursor = clamp(m.cursor-1, 0, 2)
 		} else if k == "down" || k == "j" {
@@ -916,6 +936,10 @@ func (m isoModel) onKey(k string) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "apps":
+		if isoOffline() {
+			if k == "enter" { m.next() }
+			return m, nil
+		}
 		apps := optionalApps()
 		switch k {
 		case "up", "k":
@@ -1031,6 +1055,7 @@ func humanBytes(n int64) string {
 func (m isoModel) rail() string {
 	var lines []string
 	for i, step := range isoFlow {
+		step = isoStepForMode(step)
 		if (step.key == "import-path" || step.key == "import-host") && m.picks["configuration"] != "import" {
 			continue
 		}
@@ -1068,6 +1093,9 @@ func (m isoModel) choiceBody(key string) string {
 }
 
 func (m isoModel) networkBody() string {
+	if isoOffline() {
+		return m.offlineMediaBody()
+	}
 	if !m.netChecked || m.busy {
 		return fg(cSub, "Waiting for network; automatically retrying for up to 30 seconds…")
 	}
@@ -1314,6 +1342,7 @@ func (m isoModel) timezoneBody() string {
 }
 
 func (m isoModel) appsBody() string {
+	if isoOffline() { return fg(cSub, "No optional applications are included in this minimal image. Press Enter to continue.") }
 	apps := optionalApps()
 	visible := 9
 	if m.h > 38 {
@@ -1514,6 +1543,9 @@ func (m isoModel) footer() string {
 		}
 		return keyHint("↑↓", "move") + fg(cDim, "  ·  ") + keyHint("enter", "select")
 	case "apps":
+		if isoOffline() {
+			return keyHint("enter", "continue") + fg(cDim, "  ·  ") + keyHint("esc", "back")
+		}
 		return keyHint("↑↓", "move") + fg(cDim, "  ·  ") + keyHint("space", "toggle") + fg(cDim, "  ·  ") + keyHint("a/n", "all/none") + fg(cDim, "  ·  ") + keyHint("enter", "next")
 	case "password":
 		return keyHint("tab", "switch field") + fg(cDim, "  ·  ") + keyHint("enter", "continue") + fg(cDim, "  ·  ") + keyHint("esc", "back")

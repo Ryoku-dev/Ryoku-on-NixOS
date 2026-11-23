@@ -121,6 +121,10 @@
         backend = ryokuInstallBackend;
       };
 
+      offlineIsoBuilder = import ./nix/iso/offline/builder.nix {
+        inherit pkgs self;
+      };
+
       # Temporary composition test for the cross-repository migration.
       # The active NixOS module continues using the existing package set.
       ryokuUpstreamNixosBundle = pkgs.symlinkJoin {
@@ -164,6 +168,10 @@
         nvidiaBranch ? "stable",
         nvidiaOpen ? true,
         kernel ? "default",
+        minimal ? false,
+        compositor ? "hyprland",
+        browser ? "chromium",
+        optionalApps ? [ "prompt" ],
       }:
         nixpkgs.lib.nixosSystem {
           inherit system;
@@ -179,10 +187,8 @@
               locale = "en_US.UTF-8";
               keyboardLayout = "us";
               inherit kernel;
-              compositor = "hyprland";
-              browser = "chromium";
+              inherit compositor browser minimal optionalApps;
               shell = "fish";
-              optionalApps = [ "prompt" ];
               binaryCache = true;
               ryokuSource = "${ryokuRepo}/unstable-dev";
               nixpkgsSource = "github:NixOS/nixpkgs/nixos-unstable";
@@ -197,6 +203,11 @@
     in
     {
       lib.version = version;
+      lib.offlineProfile = "niri-latest-firefox-minimal-v2";
+
+      lib.mkOfflineIso = args: import ./nix/iso/offline {
+        inherit self nixpkgs ryokuInstall ryokuRepo;
+      } args;
 
       nixosModules.default = ryokuNixosModule;
 
@@ -219,6 +230,16 @@
         ryoku-install-backend = ryokuInstallBackend;
         ryoku-iso = self.nixosConfigurations.ryoku-iso.config.system.build.isoImage;
         ryoku-iso-stable = self.nixosConfigurations.ryoku-iso-stable.config.system.build.isoImage;
+        build-iso-offline = offlineIsoBuilder;
+        ryoku-offline-payload = import ./nix/iso/offline/payload.nix {
+          inherit pkgs;
+          mkSystem = mkIsoConfigSystem;
+        };
+        ryoku-offline-nvidia-payload = import ./nix/iso/offline/payload.nix {
+          inherit pkgs;
+          mkSystem = mkIsoConfigSystem;
+          includeNvidia = true;
+        };
         # The system a default install builds; nix-cache.yml pushes it to the
         # binary cache so installs and updates download Ryoku instead of
         # compiling it.
@@ -277,12 +298,26 @@
 
         ryoku-dev = ryokuDev;
         ryoku-materialize = ryokuMaterialize;
+        ryoku-materialize-minimal = import ./nix/apps/ryoku-materialize.nix {
+          inherit pkgs ryoku;
+          compositors = [ "niri" ];
+        };
+        ryoku-helpers-minimal = import ./nix/packages/ryoku-helpers.nix {
+          inherit pkgs;
+          src = self;
+          enableStage = false;
+        };
         gpk = glazepkg.packages.${system}.gpk;
 
         default = ryoku.bundle;
       };
 
       apps.${system} = {
+        build-iso-offline = {
+          type = "app";
+          program = "${offlineIsoBuilder}/bin/build-iso-offline";
+          meta.description = "Build a standalone ISO with the guided offline installer";
+        };
         install = {
           type = "app";
           program = "${ryokuInstall}/bin/ryoku-install";
@@ -309,6 +344,17 @@
       };
 
       checks.${system} = {
+        ryoku-offline-minimal-profile = import ./nix/tests/offline-minimal-profile.nix {
+          inherit pkgs;
+          inherit (self.packages.${system}.ryoku-offline-payload) configurations buildTools;
+        };
+        ryoku-offline-derivation-transport = import ./nix/tests/offline-derivation-transport.nix {
+          inherit pkgs;
+        };
+        ryoku-installer-offline = import ./nix/tests/installer-offline.nix {
+          inherit pkgs;
+        };
+
         ryoku-installer-options = import ./nix/tests/installer-options.nix {
           inherit pkgs;
           module = self.nixosModules.default;

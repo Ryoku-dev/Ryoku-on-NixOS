@@ -34,6 +34,8 @@ nvidia_branch="stable"
 nvidia_open=true
 target_root="${RYOKU_INSTALL_TARGET_ROOT:-/mnt}"
 iso_work=""
+offline_root_uuid=""
+offline_efi_id=""
 iso_config_templates="@ISO_CONFIGS@"
 
 # Bootstrap the public cache before the new NixOS generation
@@ -719,6 +721,9 @@ install_iso() {
     render_import_target "$iso_work"
   else
     render_iso_target "$iso_work" "$firmware" "$password_hash"
+    if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+      offline_write_profile
+    fi
   fi
 
   printf '\nRyoku NixOS full installation\n'
@@ -800,6 +805,9 @@ install_iso() {
   fi
 
   echo "@@RYOKU_STEP validate"
+  if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+    offline_prepare_hardware
+  fi
   if ! nix eval --raw \
     "path:$iso_work#nixosConfigurations.$install_host.config.system.build.toplevel.drvPath" \
     >/dev/null
@@ -821,6 +829,10 @@ install_iso() {
     then
       die "NVIDIA kernel-module preflight failed before disk changes; retry with --kernel default or another NVIDIA-compatible kernel"
     fi
+  fi
+
+  if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+    offline_build_system
   fi
 
   printf '\n%s\n' "WARNING: ALL DATA ON $install_disk WILL BE PERMANENTLY ERASED."
@@ -868,14 +880,24 @@ install_iso() {
   [ -n "$boot_part" ] || die "boot partition did not appear after partitioning"
 
   echo "@@RYOKU_STEP filesystems"
-  if [ "$filesystem" = "ext4" ]; then
+  if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+    if [ "$filesystem" = ext4 ]; then
+      run_root mkfs.ext4 -F -L nixos -U "$offline_root_uuid" "$root_part"
+    else
+      run_root mkfs.btrfs -f -L nixos -U "$offline_root_uuid" "$root_part"
+    fi
+  elif [ "$filesystem" = "ext4" ]; then
     run_root mkfs.ext4 -F -L nixos "$root_part"
   else
     run_root mkfs.btrfs -f -L nixos "$root_part"
   fi
 
   if [ "$firmware" = "uefi" ]; then
-    run_root mkfs.fat -F 32 -n EFI "$boot_part"
+    if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+      run_root mkfs.fat -F 32 -n EFI -i "$offline_efi_id" "$boot_part"
+    else
+      run_root mkfs.fat -F 32 -n EFI "$boot_part"
+    fi
   fi
 
   run_root mkdir -p "$target_root"
@@ -887,7 +909,9 @@ install_iso() {
 
   echo "@@RYOKU_STEP configuration"
   run_root mkdir -p "$target_root/etc/nixos"
-  run_root nixos-generate-config --root "$target_root" --show-hardware-config > "$iso_work/hardware-configuration.nix"
+  if [ -z "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+    run_root nixos-generate-config --root "$target_root" --show-hardware-config > "$iso_work/hardware-configuration.nix"
+  fi
   run_root cp -a "$iso_work/." "$target_root/etc/nixos/"
   # The staging tree belongs to the live `nixos` user. `cp -a` would preserve
   # that numeric ownership into the installed system, making /etc/nixos
@@ -911,13 +935,17 @@ $(choose_install_parallelism)
 EOF
   printf 'Ryoku installer: nix build parallelism: %s job(s), %s core(s) per job\n' \
     "$install_jobs" "$install_cores"
-  run_root nixos-install \
-    --max-jobs "$install_jobs" \
-    --cores "$install_cores" \
-    --root "$target_root" \
-    --flake "path:$target_root/etc/nixos#$install_host" \
-    --no-root-passwd \
-    "${bootstrap_cache[@]}"
+  if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+    offline_install_system
+  else
+    run_root nixos-install \
+      --max-jobs "$install_jobs" \
+      --cores "$install_cores" \
+      --root "$target_root" \
+      --flake "path:$target_root/etc/nixos#$install_host" \
+      --no-root-passwd \
+      "${bootstrap_cache[@]}"
+  fi
 
   echo "@@RYOKU_STEP finalize"
   run_root sync
@@ -1223,6 +1251,11 @@ if [ -n "$apps_spec" ] && [ "$apps_spec" != "none" ]; then
 fi
 
 if [ "$iso_mode" -eq 1 ]; then
+  if [ -n "${RYOKU_INSTALL_OFFLINE:-}" ]; then
+    # shellcheck disable=SC1091
+    source @OFFLINE_HELPER@
+    offline_init
+  fi
   install_iso
   exit $?
 fi

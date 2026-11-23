@@ -1,4 +1,4 @@
-{ pkgs, src }:
+{ pkgs, src, enableStage ? true }:
 
 let
   # Ryostage replaces the old separate Depth and Parallax Python runtimes.
@@ -6,7 +6,7 @@ let
   # Upstream normally provisions a mutable Python venv on first use. NixOS
   # supplies the complete runtime declaratively instead; only downloaded model
   # weights belong in writable user state.
-  stagePython = pkgs.python3.withPackages (ps: [
+  stagePython = if !enableStage then pkgs.python3 else pkgs.python3.withPackages (ps: [
     ps.rembg
     ps.numpy
     ps.pillow
@@ -243,6 +243,9 @@ SH
       --replace-fail '@COREUTILS_BIN@' "${pkgs.coreutils}/bin"
 
     chmod 755 "$out/bin/ryostage"
+    ${pkgs.lib.optionalString (!enableStage) ''
+      rm -f "$out/bin/ryostage" "$out/libexec/ryostage"
+    ''}
 
     # ------------------------------------------------------------------
     # Ryoku equalizer

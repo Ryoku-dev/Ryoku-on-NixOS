@@ -23,8 +23,14 @@ let
 
   ryokuShell = ryokuPkgs.ryoku-shell;
   ryokuRashin = ryokuPkgs.ryoku-rashin;
-  ryokuBundle = ryokuPkgs.ryoku-bundle;
-  ryokuHelpers = ryokuPkgs.ryoku-helpers;
+  ryokuBundle = if cfg.minimal then pkgs.symlinkJoin {
+    name = "ryoku-minimal-desktop";
+    paths = with ryokuPkgs; [
+      ryoku-shell ryoku-cli ryoku-nix-update ryoku-hub ryoku-palette-bridge
+      ryoku-desktop-data ryoku-wm-niri ryoku-qml ryoku-nixos-system-bridge
+    ];
+  } else ryokuPkgs.ryoku-bundle;
+  ryokuHelpers = if cfg.minimal then ryokuPkgs.ryoku-helpers-minimal else ryokuPkgs.ryoku-helpers;
   ryokuSystemBridge = ryokuPkgs.ryoku-nixos-system-bridge;
   ryokuDesktopData = ryokuPkgs.ryoku-desktop-data;
   ryokuRyogami = ryokuPkgs.ryoku-ryogami;
@@ -59,7 +65,7 @@ let
   ryokuHyprPlugins = ryokuPkgs.ryoku-hypr-plugins;
   ryokuCursorMaterial = ryokuPkgs.ryoku-cursor-material;
   ryokuMapleMonoNF = ryokuPkgs.ryoku-maple-mono-nf;
-  materializer = ryokuPkgs.ryoku-materialize;
+  materializer = if cfg.minimal then ryokuPkgs.ryoku-materialize-minimal else ryokuPkgs.ryoku-materialize;
 
   # The shell, suspend guard and Hub lock preview all enter qylock through this
   # stable launcher. Keep it in the Nix closure instead of assuming the Arch
@@ -572,7 +578,7 @@ EOF
   # package alongside its other first-party dependencies.
   ryokuWaifu2x = ryokuPkgs.ryoku-waifu2x;
 
-  waifu2xModels =
+  waifu2xModels = if cfg.minimal then "" else
     "${ryokuWaifu2x}/share/waifu2x-ncnn-vulkan/models-cunet";
 
   # Upstream ships mpv together with mpv-mpris so radio/media
@@ -719,7 +725,20 @@ EOF
     ln -s       "${config.security.wrapperDir}/sudo"       "$out/bin/sudo"
   '';
 
-  runtimePackages = with pkgs; [
+  runtimePackages = if cfg.minimal then (with pkgs; [
+    ryokuBundle ryokuHelpers materializer ryokuNixSessionStart ryokuQylockLock
+    ryokuSddmThemeApply ryokuSddmTheme ryokuQs ryokuQuickshell
+    ryokuWmNiri ryokuNiri ryokuXwaylandSatellite ryokuMatugen
+    bash coreutils getent findutils gnugrep gnused gawk procps iproute2
+    util-linux systemd dbus which file less kitty fish
+    gnome-keyring xdg-desktop-portal-gtk
+    networkmanager bluez upower power-profiles-daemon
+    brightnessctl playerctl pipewire wireplumber pulseaudio
+    hypridle wl-clipboard grim slurp jq curl openssl xdg-utils
+    python3 glib libnotify bibata-cursors
+  ]) ++ browserPackages else fullRuntimePackages;
+
+  fullRuntimePackages = with pkgs; [
     # ─────────────────────────────────────────────────────────
     # Ryoku
     # ─────────────────────────────────────────────────────────
@@ -1074,6 +1093,11 @@ in
   ];
 
   options.programs.ryoku = {
+    minimal = lib.mkOption {
+      type = lib.types.bool;
+      default = false;
+      description = "Install the essential Ryoku desktop with only the niri provider and no bundled extra applications.";
+    };
     enable = lib.mkEnableOption "Ryoku desktop";
 
     upstreamPackages.enable = lib.mkOption {
@@ -1177,7 +1201,7 @@ in
     # Nixpkgs wraps gsr-kms-server with the narrow capability upstream expects.
     # Installing gpu-screen-recorder as a plain package leaves that helper
     # unprivileged and forces an authentication prompt for every recording.
-    programs.gpu-screen-recorder.enable = true;
+    programs.gpu-screen-recorder.enable = !cfg.minimal;
 
     # Public binary cache for independently compiled Ryotunes releases.
     # Never distribute the private Cachix authentication token.
@@ -1225,7 +1249,7 @@ in
 
 
     programs.hyprland = {
-      enable = true;
+      enable = !cfg.minimal;
 
       # Ryoku requires an exact compositor/plugin ABI match. Do not inherit
       # the host's Hyprland package, which may be older on NixOS stable.
@@ -1251,8 +1275,7 @@ in
       extraPortals = [
         pkgs.xdg-desktop-portal-gtk
         pkgs.xdg-desktop-portal-gnome
-        pkgs.xdg-desktop-portal-wlr
-      ];
+      ] ++ lib.optional (!cfg.minimal) pkgs.xdg-desktop-portal-wlr;
 
       config.hyprland.default = [
         "hyprland"
@@ -1687,11 +1710,8 @@ in
         (lib.mkOverride 900 compositorSession.${cfg.defaultCompositor});
 
     # Supply a greeter on No Desktop installs, preserving another login manager.
-    services.displayManager.sessionPackages = [
-      ryokuHyprlandSession
-      ryokuNiriSession
-      ryokuMangoSession
-    ];
+    services.displayManager.sessionPackages = [ ryokuNiriSession ]
+      ++ lib.optionals (!cfg.minimal) [ ryokuHyprlandSession ryokuMangoSession ];
 
     services.displayManager.sddm = {
       enable = lib.mkDefault (!(lib.any
@@ -1773,7 +1793,7 @@ in
       # Hub may configure them, but Nix owns compilation and package paths.
       RYOKU_HYPR_PLUGINS_MANAGED = "nix";
       RYOKU_HYPR_PLUGIN_DIR =
-        "${ryokuHyprPlugins}/lib/hyprland/plugins";
+        if cfg.minimal then "" else "${ryokuHyprPlugins}/lib/hyprland/plugins";
 
       # Ryowalls and Ryoshot normally use Arch's /usr/share
       # model path. Point them at the immutable nixpkgs payload.
@@ -1975,7 +1995,7 @@ in
       };
     };
 
-    systemd.user.services.ryoku-rashin = {
+    systemd.user.services.ryoku-rashin = lib.mkIf (!cfg.minimal) {
       description = "Ryoku Rashin local agent OS daemon and dashboard";
 
       wantedBy = [
@@ -2116,7 +2136,7 @@ in
     # through a package preset; NixOS owns both units here.
     # ─────────────────────────────────────────────────────────
 
-    systemd.user.sockets.ryotunesd = {
+    systemd.user.sockets.ryotunesd = lib.mkIf (!cfg.minimal) {
       description = "Ryotunes playback daemon socket";
 
       wantedBy = [
@@ -2132,7 +2152,7 @@ in
       };
     };
 
-    systemd.user.services.ryotunesd = {
+    systemd.user.services.ryotunesd = lib.mkIf (!cfg.minimal) {
       description = "Ryotunes playback daemon";
 
       # ryotunesd launches ryotunes-qml by command name. Keep the
@@ -2276,7 +2296,7 @@ in
       # Hub may configure them, but Nix owns compilation and package paths.
       RYOKU_HYPR_PLUGINS_MANAGED = "nix";
       RYOKU_HYPR_PLUGIN_DIR =
-        "${ryokuHyprPlugins}/lib/hyprland/plugins";
+        if cfg.minimal then "" else "${ryokuHyprPlugins}/lib/hyprland/plugins";
         RYOKU_WAIFU2X_MODELS = waifu2xModels;
 
         QT_MEDIA_BACKEND = "ffmpeg";

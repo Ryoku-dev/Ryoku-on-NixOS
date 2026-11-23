@@ -28,6 +28,7 @@ let
       "@INSTALL_EDIT@"
       "@ISO_CONFIGS@"
       "@ZONEINFO_ROOT@"
+      "@OFFLINE_HELPER@"
     ]
     [
       trustedRootPath
@@ -35,6 +36,7 @@ let
       "${./ryoku-install-edit.py}"
       "${../iso-configs}"
       "${pkgs.tzdata}/share/zoneinfo"
+      "${../iso/offline/install.sh}"
     ]
     (builtins.readFile ./ryoku-install-backend.sh);
 in
